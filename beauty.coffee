@@ -3,1168 +3,1191 @@
 # Conversion to cofeescript by Isak Bakken, isak@klarna.com,
 # MIT licence, enjoy.
 
-class BeautifierOptions:
-    def __init__(self):
-        self.indent_size = 4
-        self.indent_char = ' '
-        self.indent_with_tabs = False
-        self.preserve_newlines = True
-        self.max_preserve_newlines = 10.
-        self.jslint_happy = False
-        self.brace_style = 'collapse'
-        self.keep_array_indentation = False
-        self.keep_function_indentation = False
-        self.eval_code = False
-        self.unescape_strings = False
-
-
-
-    def __repr__(self):
-        return \
-"""indent_size = %d
-indent_char = [%s]
-preserve_newlines = %s
-max_preserve_newlines = %d
-jslint_happy = %s
-indent_with_tabs = %s
-brace_style = %s
-keep_array_indentation = %s
-eval_code = %s
-unescape_strings = %s
-""" % ( self.indent_size,
-        self.indent_char,
-        self.preserve_newlines,
-        self.max_preserve_newlines,
-        self.jslint_happy,
-        self.indent_with_tabs,
-        self.brace_style,
-        self.keep_array_indentation,
-        self.eval_code,
-        self.unescape_strings,
-        )
+'use strict'
+
+_           = require 'underscore'
+_.str       = require 'underscore.string'
+
+WHITESPACE  = ["\n", "\r", "\t", " "]
+
+WORDCHAR    = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$'
+
+DIGITS      = '0123456789'
+
+PUNCT       = '''
+              + - * / % & ++ -- = += -= *= /= %= == === != !== > < >= <= >> <<
+              >>> >>>= >>= <<= && &= | || ! !! , : ? ^ ^= |= ::
+              <?= <? ?> <%= <% %>
+              '''.split(/\s+/)
+
+# Words which always should start on a new line
+LINE_STARTERS = '''
+              continue try throw return var if switch case default for
+              while break function
+              '''.split(' ')
+
+# Pythonic functions etc:
+None        = "THIS_IS_NONE" # FIXME: replace with undefined later
+
+len         = (x)    -> x.length
+
+range       = (a, b) -> if b is undefined then [0..a] else [a..b]
+
+print       = (x...) -> console.log.apply console, x
+
+class BeautifierOptions
+  constructor: ->
+    @indent_size = 4
+    @indent_char = ' '
+    @indent_with_tabs = false
+    @preserve_newlines = true
+    @max_preserve_newlines = 10
+    @jslint_happy = false
+    @brace_style = 'collapse'
+    @keep_array_indentation = false
+    @keep_function_indentation = false
+    @eval_code = false
+    @unescape_strings = false
+
+
+
+  toString: ->
+    return _.str.sprintf(
+      """indent_size = %d
+      indent_char = [%s]
+      preserve_newlines = %s
+      max_preserve_newlines = %d
+      jslint_happy = %s
+      indent_with_tabs = %s
+      brace_style = %s
+      keep_array_indentation = %s
+      eval_code = %s
+      unescape_strings = %s
+      """,
+      @indent_size,
+      @indent_char,
+      @preserve_newlines,
+      @max_preserve_newlines,
+      @jslint_happy,
+      @indent_with_tabs,
+      @brace_style,
+      @keep_array_indentation,
+      @eval_code,
+      @unescape_strings)
 
 
-class BeautifierFlags:
-    def __init__(self, mode):
-        self.previous_mode = 'BLOCK'
-        self.mode = mode
-        self.var_line = False
-        self.var_line_tainted = False
-        self.var_line_reindented = False
-        self.in_html_comment = False
-        self.if_line = False
-        self.in_case = False
-        self.in_case_statement = False
-        self.eat_next_space = False
-        self.indentation_baseline = -1
-        self.indentation_level = 0
-        self.ternary_depth = 0
+class BeautifierFlags
+  constructor: (@mode) ->
+    @previous_mode = 'BLOCK'
+    @var_line = false
+    @var_line_tainted = false
+    @var_line_reindented = false
+    @in_html_comment = false
+    @if_line = false
+    @in_case = false
+    @in_case_statement = false
+    @eat_next_space = false
+    @indentation_baseline = -1
+    @indentation_level = 0
+    @ternary_depth = 0
 
 
-def default_options():
-    return BeautifierOptions()
+default_options = ->
+  BeautifierOptions()
+
+
+beautify = (string, opts = default_options() ) ->
+  b = Beautifier()
+  return b.beautify(string, opts)
 
+beautify_file = (file_name, opts = default_options() ) ->
+
+  if file_name == '-' # stdin
+    f = sys.stdin
+  else
+    try
+      f = open(file_name)
+    catch ex
+      return 'The file could not be opened'
 
-def beautify(string, opts = default_options() ):
-    b = Beautifier()
-    return b.beautify(string, opts)
+  b = Beautifier()
+  return b.beautify(''.join(f.readlines()), opts)
 
-def beautify_file(file_name, opts = default_options() ):
 
-    if file_name == '-': # stdin
-        f = sys.stdin
-    else:
-        try:
-            f = open(file_name)
-        except Exception as ex:
-            return 'The file could not be opened'
+usage = ->
+  print "Javascript beautifier - increases the millihelens of your code."
 
-    b = Beautifier()
-    return b.beautify(''.join(f.readlines()), opts)
 
+class Beautifier
 
-def usage():
+  constructor : (opts = default_options() ) ->
 
-    print("""Javascript beautifier (http://jsbeautifier.org/)
+    @opts = opts
+    @blank_state()
 
-Usage: jsbeautifier.py [options] <infile>
+  blank_state: ->
 
-    <infile> can be "-", which means stdin.
-    <outfile> defaults to stdout
+    # internal flags
+    @flags = BeautifierFlags('BLOCK')
+    @flag_store = []
+    @wanted_newline = false
+    @just_added_newline = false
+    @do_block_just_closed = false
 
-Input options:
+    if @opts.indent_with_tabs
+      @indent_string = "\t"
+    else
+      @indent_string = @opts.indent_char * @opts.indent_size
 
- -i,  --stdin                      read input from stdin
+    @preindent_string = ''
+    @last_word = ''        # last TK_WORD seen
+    @last_type = 'TK_START_EXPR' # last token type
+    @last_text = ''        # last token text
+    @last_last_text = ''     # pre-last token text
 
-Output options:
+    @input = None
+    @output = []         # formatted javascript gets built here
 
- -s,  --indent-size=NUMBER         indentation size. (default 4).
- -c,  --indent-char=CHAR           character to indent with. (default space).
- -t,  --indent-with-tabs           Indent with tabs, overrides -s and -c
- -d,  --disable-preserve-newlines  do not preserve existing line breaks.
- -j,  --jslint-happy               more jslint-compatible output
- -b,  --brace-style=collapse       brace style (collapse, expand, end-expand)
- -k,  --keep-array-indentation     keep array indentation.
- -o,  --outfile=FILE               specify a file to output to (default stdout)
- -f,  --keep-function-indentation  Do not re-indent function bodies defined in var lines.
- -x,  --unescape-strings          Decode printable chars encoded in \\xNN notation.
 
-Rarely needed options:
+    @set_mode('BLOCK')
 
- --eval-code                       evaluate code if a JS interpreter is
-                                   installed. May be useful with some obfuscated
-                                   script but poses a potential security issue.
+    global parser_pos
+    parser_pos = 0
 
- -l,  --indent-level=NUMBER        initial indentation level. (default 0).
 
- -h,  --help, --usage              prints this help statement.
+  beautify: (s, opts = None ) ->
 
-""")
+    if opts != None
+      @opts = opts
 
 
+    if @opts.brace_style not in ['expand', 'collapse', 'end-expand']
+      throw new Error(
+        'opts.brace_style must be "expand", "collapse" or "end-expand".')
 
+    @blank_state()
 
+    while s and s[0] in [' ', '\t']
+      @preindent_string += s[0]
+      s = s[1..]
 
+    @input = @unpack(s, opts.eval_code)
 
-class Beautifier:
+    parser_pos = 0
+    while true
+      [token_text, token_type] = @get_next_token()
+      #print (token_text, token_type, @flags.mode)
+      if token_type == 'TK_EOF'
+        break
 
-    def __init__(self, opts = default_options() ):
+      handlers = {
+        'TK_START_EXPR': @handle_start_expr,
+        'TK_END_EXPR': @handle_end_expr,
+        'TK_START_BLOCK': @handle_start_block,
+        'TK_END_BLOCK': @handle_end_block,
+        'TK_WORD': @handle_word,
+        'TK_SEMICOLON': @handle_semicolon,
+        'TK_STRING': @handle_string,
+        'TK_EQUALS': @handle_equals,
+        'TK_OPERATOR': @handle_operator,
+        'TK_COMMA': @handle_comma,
+        'TK_BLOCK_COMMENT': @handle_block_comment,
+        'TK_INLINE_COMMENT': @handle_inline_comment,
+        'TK_COMMENT': @handle_comment,
+        'TK_UNKNOWN': @handle_unknown,
+      }
 
-        self.opts = opts
-        self.blank_state()
+      handlers[token_type](token_text)
 
-    def blank_state(self):
+      @last_last_text = @last_text
+      @last_type = token_type
+      @last_text = token_text
 
-        # internal flags
-        self.flags = BeautifierFlags('BLOCK')
-        self.flag_store = []
-        self.wanted_newline = False
-        self.just_added_newline = False
-        self.do_block_just_closed = False
+    sweet_code = @preindent_string + @output.join('').replace(/[\n ]+$/g, '')
+    return sweet_code
 
-        if self.opts.indent_with_tabs:
-            self.indent_string = "\t"
-        else:
-            self.indent_string = self.opts.indent_char * self.opts.indent_size
+  trim_output: (eat_newlines = false) ->
+    check = (output) ->
+      len(@output) and (@output[-1] == ' ' or
+                        @output[-1] == @indent_string or
+                        @output[-1] == @preindent_string or
+                        (eat_newlines and @output[-1] in ['\n', '\r']))
+    while check @output
+      @output.pop()
 
-        self.preindent_string = ''
-        self.last_word = ''              # last TK_WORD seen
-        self.last_type = 'TK_START_EXPR' # last token type
-        self.last_text = ''              # last token text
-        self.last_last_text = ''         # pre-last token text
+  is_special_word: (s) ->
+    return s in ['case', 'return', 'do', 'if', 'throw', 'else']
 
-        self.input = None
-        self.output = []                 # formatted javascript gets built here
+  is_array: (mode) ->
+    return mode in ['[EXPRESSION]', '[INDENTED-EXPRESSION]']
 
-        self.whitespace = ["\n", "\r", "\t", " "]
-        self.wordchar = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$'
-        self.digits = '0123456789'
-        self.punct = '+ - * / % & ++ -- = += -= *= /= %= == === != !== > < >= <= >> << >>> >>>= >>= <<= && &= | || ! !! , : ? ^ ^= |= ::'
-        self.punct += ' <?= <? ?> <%= <% %>'
-        self.punct = self.punct.split(' ')
 
+  is_expression: (mode) ->
+    return mode in ['[EXPRESSION]', '[INDENTED-EXPRESSION]', '(EXPRESSION)',
+                    '(FOR-EXPRESSION)', '(COND-EXPRESSION)']
 
-        # Words which always should start on a new line
-        self.line_starters = 'continue,try,throw,return,var,if,switch,case,default,for,while,break,function'.split(',')
-        self.set_mode('BLOCK')
 
-        global parser_pos
-        parser_pos = 0
+  append_newline_forced: ->
+    old_array_indentation = @opts.keep_array_indentation
+    @opts.keep_array_indentation = false
+    @append_newline()
+    @opts.keep_array_indentation = old_array_indentation
 
+  append_newline: (ignore_repeated = true) ->
 
-    def beautify(self, s, opts = None ):
+    @flags.eat_next_space = false
 
-        if opts != None:
-            self.opts = opts
+    if @opts.keep_array_indentation and @is_array(@flags.mode)
+      return
 
+    @flags.if_line = false
+    @trim_output()
 
-        if self.opts.brace_style not in ['expand', 'collapse', 'end-expand']:
-            raise(Exception('opts.brace_style must be "expand", "collapse" or "end-expand".'))
+    if len(@output) == 0
+      # no newline on start of file
+      return
 
-        self.blank_state()
+    if @output[-1] != '\n' or not ignore_repeated
+      @just_added_newline = true
+      @output.append('\n')
 
-        while s and s[0] in [' ', '\t']:
-            self.preindent_string += s[0]
-            s = s[1:]
+    if @preindent_string
+      @output.append(@preindent_string)
 
-        self.input = self.unpack(s, opts.eval_code)
+    for i in range(@flags.indentation_level)
+      @output.append(@indent_string)
 
-        parser_pos = 0
-        while True:
-            token_text, token_type = self.get_next_token()
-            #print (token_text, token_type, self.flags.mode)
-            if token_type == 'TK_EOF':
-                break
+    if @flags.var_line and @flags.var_line_reindented
+      @output.append(@indent_string)
 
-            handlers = {
-                'TK_START_EXPR': self.handle_start_expr,
-                'TK_END_EXPR': self.handle_end_expr,
-                'TK_START_BLOCK': self.handle_start_block,
-                'TK_END_BLOCK': self.handle_end_block,
-                'TK_WORD': self.handle_word,
-                'TK_SEMICOLON': self.handle_semicolon,
-                'TK_STRING': self.handle_string,
-                'TK_EQUALS': self.handle_equals,
-                'TK_OPERATOR': self.handle_operator,
-                'TK_COMMA': self.handle_comma,
-                'TK_BLOCK_COMMENT': self.handle_block_comment,
-                'TK_INLINE_COMMENT': self.handle_inline_comment,
-                'TK_COMMENT': self.handle_comment,
-                'TK_UNKNOWN': self.handle_unknown,
-            }
 
-            handlers[token_type](token_text)
+  append: (s) ->
+    if s == ' '
+      # do not add just a single space after the // comment, ever
+      if @last_type == 'TK_COMMENT'
+        return @append_newline()
 
-            self.last_last_text = self.last_text
-            self.last_type = token_type
-            self.last_text = token_text
+      # make sure only single space gets drawn
+      if @flags.eat_next_space
+        @flags.eat_next_space = false
+      else if len(@output) and @output[-1] not in [' ', '\n', @indent_string]
+        @output.append(' ')
+    else
+      @just_added_newline = false
+      @flags.eat_next_space = false
+      @output.append(s)
 
-        sweet_code = self.preindent_string + re.sub('[\n ]+$', '', ''.join(self.output))
-        return sweet_code
 
-    def unpack(self, source, evalcode=False):
-        import jsbeautifier.unpackers as unpackers
-        try:
-            return unpackers.run(source, evalcode)
-        except unpackers.UnpackingError as error:
-            print('error:', error)
-            return ''
+  indent: ->
+    @flags.indentation_level = @flags.indentation_level + 1
 
-    def trim_output(self, eat_newlines = False):
-        while len(self.output) \
-              and (
-                  self.output[-1] == ' '\
-                  or self.output[-1] == self.indent_string \
-                  or self.output[-1] == self.preindent_string \
-                  or (eat_newlines and self.output[-1] in ['\n', '\r'])):
-            self.output.pop()
 
-    def is_special_word(self, s):
-        return s in ['case', 'return', 'do', 'if', 'throw', 'else'];
+  remove_indent: ->
+    if len(@output) and @output[-1] in [@indent_string, @preindent_string]
+      @output.pop()
 
-    def is_array(self, mode):
-        return mode in ['[EXPRESSION]', '[INDENTED-EXPRESSION]']
 
+  set_mode: (mode) ->
 
-    def is_expression(self, mode):
-        return mode in ['[EXPRESSION]', '[INDENTED-EXPRESSION]', '(EXPRESSION)', '(FOR-EXPRESSION)', '(COND-EXPRESSION)']
+    prev = BeautifierFlags('BLOCK')
 
+    if @flags
+      @flag_store.append(@flags)
+      prev = @flags
 
-    def append_newline_forced(self):
-        old_array_indentation = self.opts.keep_array_indentation
-        self.opts.keep_array_indentation = False
-        self.append_newline()
-        self.opts.keep_array_indentation = old_array_indentation
+    @flags = BeautifierFlags(mode)
 
-    def append_newline(self, ignore_repeated = True):
+    if len(@flag_store) == 1
+      @flags.indentation_level = 0
+    else
+      @flags.indentation_level = prev.indentation_level
+      if prev.var_line and prev.var_line_reindented
+        @flags.indentation_level = @flags.indentation_level + 1
+    @flags.previous_mode = prev.mode
 
-        self.flags.eat_next_space = False
 
-        if self.opts.keep_array_indentation and self.is_array(self.flags.mode):
-            return
+  restore_mode: ->
+    @do_block_just_closed = @flags.mode == 'DO_BLOCK'
+    if len(@flag_store) > 0
+      mode = @flags.mode
+      @flags = @flag_store.pop()
+      @flags.previous_mode = mode
 
-        self.flags.if_line = False
-        self.trim_output()
 
-        if len(self.output) == 0:
-            # no newline on start of file
-            return
+  get_next_token: ->
 
-        if self.output[-1] != '\n' or not ignore_repeated:
-            self.just_added_newline = True
-            self.output.append('\n')
+    global parser_pos
 
-        if self.preindent_string:
-            self.output.append(self.preindent_string)
+    @n_newlines = 0
 
-        for i in range(self.flags.indentation_level):
-            self.output.append(self.indent_string)
+    if parser_pos >= len(@input)
+      return ['', 'TK_EOF']
 
-        if self.flags.var_line and self.flags.var_line_reindented:
-            self.output.append(self.indent_string)
+    @wanted_newline = false
+    c = @input[parser_pos]
+    parser_pos += 1
 
+    keep_whitespace = @opts.keep_array_indentation and @is_array(@flags.mode)
 
-    def append(self, s):
-        if s == ' ':
-            # do not add just a single space after the // comment, ever
-            if self.last_type == 'TK_COMMENT':
-                return self.append_newline()
+    if keep_whitespace
 
-            # make sure only single space gets drawn
-            if self.flags.eat_next_space:
-                self.flags.eat_next_space = False
-            elif len(self.output) and self.output[-1] not in [' ', '\n', self.indent_string]:
-                self.output.append(' ')
-        else:
-            self.just_added_newline = False
-            self.flags.eat_next_space = False
-            self.output.append(s)
 
+      # slight mess to allow nice preservation of array indentation and reindent
+      # that correctly first time when we get to the arrays:
+      #
+      # var a = [
+      # ....'something'
+      #
+      # we make note of whitespace_count = 4 into flags.indentation_baseline
+      # so we know that 4 whitespaces in original source match indent_level of
+      # reindented source and afterwards, when we get to
+      # 'something,
+      # .......'something else'
 
-    def indent(self):
-        self.flags.indentation_level = self.flags.indentation_level + 1
+      # we know that this should be indented to indent_level + (7 -
+      # indentation_baseline) spaces
 
+      whitespace_count = 0
+      while c in WHITESPACE
+        if c == '\n'
+          @trim_output()
+          @output.append('\n')
+          @just_added_newline = true
+          whitespace_count = 0
+        else if c == '\t'
+          whitespace_count += 4
+        else if c == '\r'
+          # pass
+        else
+          whitespace_count += 1
 
-    def remove_indent(self):
-        if len(self.output) and self.output[-1] in [self.indent_string, self.preindent_string]:
-            self.output.pop()
+        if parser_pos >= len(@input)
+          return ['', 'TK_EOF']
 
-
-    def set_mode(self, mode):
-
-        prev = BeautifierFlags('BLOCK')
-
-        if self.flags:
-            self.flag_store.append(self.flags)
-            prev = self.flags
-
-        self.flags = BeautifierFlags(mode)
-
-        if len(self.flag_store) == 1:
-            self.flags.indentation_level = 0
-        else:
-            self.flags.indentation_level = prev.indentation_level
-            if prev.var_line and prev.var_line_reindented:
-                self.flags.indentation_level = self.flags.indentation_level + 1
-        self.flags.previous_mode = prev.mode
-
-
-    def restore_mode(self):
-        self.do_block_just_closed = self.flags.mode == 'DO_BLOCK'
-        if len(self.flag_store) > 0:
-            mode = self.flags.mode
-            self.flags = self.flag_store.pop()
-            self.flags.previous_mode = mode
-
-
-    def get_next_token(self):
-
-        global parser_pos
-
-        self.n_newlines = 0
-
-        if parser_pos >= len(self.input):
-            return '', 'TK_EOF'
-
-        self.wanted_newline = False
-        c = self.input[parser_pos]
+        c = @input[parser_pos]
         parser_pos += 1
 
-        keep_whitespace = self.opts.keep_array_indentation and self.is_array(self.flags.mode)
+      if @flags.indentation_baseline == -1
 
-        if keep_whitespace:
-            # slight mess to allow nice preservation of array indentation and reindent that correctly
-            # first time when we get to the arrays:
-            # var a = [
-            # ....'something'
-            # we make note of whitespace_count = 4 into flags.indentation_baseline
-            # so we know that 4 whitespaces in original source match indent_level of reindented source
-            #
-            # and afterwards, when we get to
-            #    'something,
-            # .......'something else'
-            # we know that this should be indented to indent_level + (7 - indentation_baseline) spaces
+        @flags.indentation_baseline = whitespace_count
 
-            whitespace_count = 0
-            while c in self.whitespace:
-                if c == '\n':
-                    self.trim_output()
-                    self.output.append('\n')
-                    self.just_added_newline = True
-                    whitespace_count = 0
-                elif c == '\t':
-                    whitespace_count += 4
-                elif c == '\r':
-                    pass
-                else:
-                    whitespace_count += 1
+      if @just_added_newline
+        for i in range(@flags.indentation_level + 1)
+          @output.append(@indent_string)
 
-                if parser_pos >= len(self.input):
-                    return '', 'TK_EOF'
+        if @flags.indentation_baseline != -1
+          for i in range(whitespace_count - @flags.indentation_baseline)
+            @output.append(' ')
 
-                c = self.input[parser_pos]
-                parser_pos += 1
+    else # not keep_whitespace
+      while c in WHITESPACE
+        if c == '\n' and (@opts.max_preserve_newlines == 0 or
+                          @opts.max_preserve_newlines > @n_newlines)
+          @n_newlines += 1
 
-            if self.flags.indentation_baseline == -1:
+        if parser_pos >= len(@input)
+          return ['', 'TK_EOF']
 
-                self.flags.indentation_baseline = whitespace_count
+        c = @input[parser_pos]
+        parser_pos += 1
 
-            if self.just_added_newline:
-                for i in range(self.flags.indentation_level + 1):
-                    self.output.append(self.indent_string)
+      if @opts.preserve_newlines and @n_newlines > 1
+        for i in range(@n_newlines)
+          @append_newline(i == 0)
+          @just_added_newline = true
 
-                if self.flags.indentation_baseline != -1:
-                    for i in range(whitespace_count - self.flags.indentation_baseline):
-                        self.output.append(' ')
-
-        else: # not keep_whitespace
-            while c in self.whitespace:
-                if c == '\n':
-                    if self.opts.max_preserve_newlines == 0 or self.opts.max_preserve_newlines > self.n_newlines:
-                        self.n_newlines += 1
-
-                if parser_pos >= len(self.input):
-                    return '', 'TK_EOF'
-
-                c = self.input[parser_pos]
-                parser_pos += 1
-
-            if self.opts.preserve_newlines and self.n_newlines > 1:
-                for i in range(self.n_newlines):
-                    self.append_newline(i == 0)
-                    self.just_added_newline = True
-
-            self.wanted_newline = self.n_newlines > 0
+      @wanted_newline = @n_newlines > 0
 
 
-        if c in self.wordchar:
-            if parser_pos < len(self.input):
-                while self.input[parser_pos] in self.wordchar:
-                    c = c + self.input[parser_pos]
-                    parser_pos += 1
-                    if parser_pos == len(self.input):
-                        break
+    if c in WORDCHAR
+      if parser_pos < len(@input)
+        while @input[parser_pos] in @wordchar
+          c = c + @input[parser_pos]
+          parser_pos += 1
+          if parser_pos == len(@input)
+            break
 
-            # small and surprisingly unugly hack for 1E-10 representation
-            if parser_pos != len(self.input) and self.input[parser_pos] in '+-' \
-               and re.match('^[0-9]+[Ee]$', c):
+      # small and surprisingly unugly hack for 1E-10 representation
+      if parser_pos != len(@input) and @input[parser_pos] in '+-' \
+         and re.match('^[0-9]+[Ee]$', c)
 
-                sign = self.input[parser_pos]
-                parser_pos += 1
-                t = self.get_next_token()
-                c += sign + t[0]
-                return c, 'TK_WORD'
+        sign = @input[parser_pos]
+        parser_pos += 1
+        t = @get_next_token()
+        c += sign + t[0]
+        return [c, 'TK_WORD']
 
-            if c == 'in': # in is an operator, need to hack
-                return c, 'TK_OPERATOR'
+      if c == 'in' # in is an operator, need to hack
+        return [c, 'TK_OPERATOR']
 
-            if self.wanted_newline and \
-               self.last_type != 'TK_OPERATOR' and\
-               self.last_type != 'TK_EQUALS' and\
-               not self.flags.if_line and \
-               (self.opts.preserve_newlines or self.last_text != 'var'):
-                self.append_newline()
+      if @wanted_newline and \
+         @last_type != 'TK_OPERATOR' and\
+         @last_type != 'TK_EQUALS' and\
+         not @flags.if_line and \
+         (@opts.preserve_newlines or @last_text != 'var')
+        @append_newline()
 
-            return c, 'TK_WORD'
+      return [c, 'TK_WORD']
 
-        if c in '([':
-            return c, 'TK_START_EXPR'
+    if c in '(['
+      return [c, 'TK_START_EXPR']
 
-        if c in ')]':
-            return c, 'TK_END_EXPR'
+    if c in ')]'
+      return [c, 'TK_END_EXPR']
 
-        if c == '{':
-            return c, 'TK_START_BLOCK'
+    if c == '{'
+      return [c, 'TK_START_BLOCK']
 
-        if c == '}':
-            return c, 'TK_END_BLOCK'
+    if c == '}'
+      return [c, 'TK_END_BLOCK']
 
-        if c == ';':
-            return c, 'TK_SEMICOLON'
+    if c == ';'
+      return [c, 'TK_SEMICOLON']
 
-        if c == '/':
-            comment = ''
-            inline_comment = True
-            comment_mode = 'TK_INLINE_COMMENT'
-            if self.input[parser_pos] == '*': # peek /* .. */ comment
-                parser_pos += 1
-                if parser_pos < len(self.input):
-                    while not (self.input[parser_pos] == '*' and \
-                               parser_pos + 1 < len(self.input) and \
-                               self.input[parser_pos + 1] == '/')\
-                          and parser_pos < len(self.input):
-                        c = self.input[parser_pos]
-                        comment += c
-                        if c in '\r\n':
-                            comment_mode = 'TK_BLOCK_COMMENT'
-                        parser_pos += 1
-                        if parser_pos >= len(self.input):
-                            break
-                parser_pos += 2
-                return '/*' + comment + '*/', comment_mode
-            if self.input[parser_pos] == '/': # peek // comment
-                comment = c
-                while self.input[parser_pos] not in '\r\n':
-                    comment += self.input[parser_pos]
-                    parser_pos += 1
-                    if parser_pos >= len(self.input):
-                        break
-                if self.wanted_newline:
-                    self.append_newline()
-                return comment, 'TK_COMMENT'
-
-
-
-        if c == "'" or c == '"' or \
-           (c == '/' and ((self.last_type == 'TK_WORD' and self.is_special_word(self.last_text)) or \
-                          (self.last_type == 'TK_END_EXPR' and self.flags.previous_mode in ['(FOR-EXPRESSION)', '(COND-EXPRESSION)']) or \
-                          (self.last_type in ['TK_COMMENT', 'TK_START_EXPR', 'TK_START_BLOCK', 'TK_END_BLOCK', 'TK_OPERATOR',
-                                              'TK_EQUALS', 'TK_EOF', 'TK_SEMICOLON', 'TK_COMMA']))):
-            sep = c
-            esc = False
-            esc1 = 0
-            esc2 = 0
-            resulting_string = c
-            in_char_class = False
-
-            if parser_pos < len(self.input):
-                if sep == '/':
-                    # handle regexp
-                    in_char_class = False
-                    while esc or in_char_class or self.input[parser_pos] != sep:
-                        resulting_string += self.input[parser_pos]
-                        if not esc:
-                            esc = self.input[parser_pos] == '\\'
-                            if self.input[parser_pos] == '[':
-                                in_char_class = True
-                            elif self.input[parser_pos] == ']':
-                                in_char_class = False
-                        else:
-                            esc = False
-                        parser_pos += 1
-                        if parser_pos >= len(self.input):
-                            # incomplete regex when end-of-file reached
-                            # bail out with what has received so far
-                            return resulting_string, 'TK_STRING'
-                else:
-                    # handle string
-                    while esc or self.input[parser_pos] != sep:
-                        resulting_string += self.input[parser_pos]
-                        if esc1 and esc1 >= esc2:
-                            try:
-                                esc1 = int(resulting_string[-esc2:], 16)
-                            except Exception:
-                                esc1 = False
-                            if esc1 and esc1 >= 0x20 and esc1 <= 0x7e:
-                                esc1 = chr(esc1)
-                                resulting_string = resulting_string[:-2 - esc2]
-                                if esc1 == sep or esc1 == '\\':
-                                        resulting_string += '\\'
-                                resulting_string += esc1
-                            esc1 = 0
-                        if esc1:
-                            esc1 += 1
-                        elif not esc:
-                            esc = self.input[parser_pos] == '\\'
-                        else:
-                            esc = False
-                            if self.opts.unescape_strings:
-                                if self.input[parser_pos] == 'x':
-                                    esc1 += 1
-                                    esc2 = 2
-                                elif self.input[parser_pos] == 'u':
-                                    esc1 += 1
-                                    esc2 = 4
-                        parser_pos += 1
-                        if parser_pos >= len(self.input):
-                            # incomplete string when end-of-file reached
-                            # bail out with what has received so far
-                            return resulting_string, 'TK_STRING'
-
-
+    if c == '/'
+      comment = ''
+      inline_comment = true
+      comment_mode = 'TK_INLINE_COMMENT'
+      if @input[parser_pos] == '*' # peek /* .. */ comment
+        parser_pos += 1
+        if parser_pos < len(@input)
+          while not (@input[parser_pos] == '*' and \
+                 parser_pos + 1 < len(@input) and \
+                 @input[parser_pos + 1] == '/')\
+              and parser_pos < len(@input)
+            c = @input[parser_pos]
+            comment += c
+            if c in '\r\n'
+              comment_mode = 'TK_BLOCK_COMMENT'
             parser_pos += 1
-            resulting_string += sep
-            if sep == '/':
-                # regexps may have modifiers /regexp/MOD, so fetch those too
-                while parser_pos < len(self.input) and self.input[parser_pos] in self.wordchar:
-                    resulting_string += self.input[parser_pos]
-                    parser_pos += 1
-            return resulting_string, 'TK_STRING'
-
-        if c == '#':
-
-            # she-bang
-            if len(self.output) == 0 and len(self.input) > 1 and self.input[parser_pos] == '!':
-                resulting_string = c
-                while parser_pos < len(self.input) and c != '\n':
-                    c = self.input[parser_pos]
-                    resulting_string += c
-                    parser_pos += 1
-                self.output.append(resulting_string.strip() + "\n")
-                self.append_newline()
-                return self.get_next_token()
-
-
-            # Spidermonkey-specific sharp variables for circular references
-            # https://developer.mozilla.org/En/Sharp_variables_in_JavaScript
-            # http://mxr.mozilla.org/mozilla-central/source/js/src/jsscan.cpp around line 1935
-            sharp = '#'
-            if parser_pos < len(self.input) and self.input[parser_pos] in self.digits:
-                while True:
-                    c = self.input[parser_pos]
-                    sharp += c
-                    parser_pos += 1
-                    if parser_pos >= len(self.input)  or c == '#' or c == '=':
-                        break
-            if c == '#' or parser_pos >= len(self.input):
-                pass
-            elif self.input[parser_pos] == '[' and self.input[parser_pos + 1] == ']':
-                sharp += '[]'
-                parser_pos += 2
-            elif self.input[parser_pos] == '{' and self.input[parser_pos + 1] == '}':
-                sharp += '{}'
-                parser_pos += 2
-            return sharp, 'TK_WORD'
-
-        if c == '<' and self.input[parser_pos - 1 : parser_pos + 3] == '<!--':
-            parser_pos += 3
-            c = '<!--'
-            while parser_pos < len(self.input) and self.input[parser_pos] != '\n':
-                c += self.input[parser_pos]
-                parser_pos += 1
-            self.flags.in_html_comment = True
-            return c, 'TK_COMMENT'
-
-        if c == '-' and self.flags.in_html_comment and self.input[parser_pos - 1 : parser_pos + 2] == '-->':
-            self.flags.in_html_comment = False
-            parser_pos += 2
-            if self.wanted_newline:
-                self.append_newline()
-            return '-->', 'TK_COMMENT'
-
-        if c in self.punct:
-            while parser_pos < len(self.input) and c + self.input[parser_pos] in self.punct:
-                c += self.input[parser_pos]
-                parser_pos += 1
-                if parser_pos >= len(self.input):
-                    break
-            if c == '=':
-                return c, 'TK_EQUALS'
-
-            if c == ',':
-                return c, 'TK_COMMA'
-            return c, 'TK_OPERATOR'
-
-        return c, 'TK_UNKNOWN'
+            if parser_pos >= len(@input)
+              break
+        parser_pos += 2
+        return ['/*' + comment + '*/', comment_mode]
+      if @input[parser_pos] == '/' # peek // comment
+        comment = c
+        while @input[parser_pos] not in '\r\n'
+          comment += @input[parser_pos]
+          parser_pos += 1
+          if parser_pos >= len(@input)
+            break
+        if @wanted_newline
+          @append_newline()
+        return [comment, 'TK_COMMENT']
 
 
 
-    def handle_start_expr(self, token_text):
-        if token_text == '[':
-            if self.last_type == 'TK_WORD' or self.last_text == ')':
-                if self.last_text in self.line_starters:
-                    self.append(' ')
-                self.set_mode('(EXPRESSION)')
-                self.append(token_text)
-                return
+    if c == "'" or
+       c == '"' or
+       (c == '/' and (( @last_type == 'TK_WORD' and
+                        @is_special_word(@last_text) ) or
+                      ( @last_type == 'TK_END_EXPR' and
+                        @flags.previous_mode in ['(FOR-EXPRESSION)',
+                                                 '(COND-EXPRESSION)'] ) or
+                      ( @last_type in ['TK_COMMENT', 'TK_START_EXPR',
+                                       'TK_START_BLOCK', 'TK_END_BLOCK',
+                                       'TK_OPERATOR', 'TK_EQUALS', 'TK_EOF',
+                                       'TK_SEMICOLON', 'TK_COMMA'])))
+      sep = c
+      esc = false
+      esc1 = 0
+      esc2 = 0
+      resulting_string = c
+      in_char_class = false
 
-            if self.flags.mode in ['[EXPRESSION]', '[INDENTED-EXPRESSION]']:
-                if self.last_last_text == ']' and self.last_text == ',':
-                    # ], [ goes to a new line
-                    if self.flags.mode == '[EXPRESSION]':
-                        self.flags.mode = '[INDENTED-EXPRESSION]'
-                        if not self.opts.keep_array_indentation:
-                            self.indent()
-                    self.set_mode('[EXPRESSION]')
-                    if not self.opts.keep_array_indentation:
-                        self.append_newline()
-                elif self.last_text == '[':
-                    if self.flags.mode == '[EXPRESSION]':
-                        self.flags.mode = '[INDENTED-EXPRESSION]'
-                        if not self.opts.keep_array_indentation:
-                            self.indent()
-                    self.set_mode('[EXPRESSION]')
-
-                    if not self.opts.keep_array_indentation:
-                        self.append_newline()
-                else:
-                    self.set_mode('[EXPRESSION]')
-            else:
-                self.set_mode('[EXPRESSION]')
-        else:
-            if self.last_text == 'for':
-                self.set_mode('(FOR-EXPRESSION)')
-            elif self.last_text in ['if', 'while']:
-                self.set_mode('(COND-EXPRESSION)')
-            else:
-                self.set_mode('(EXPRESSION)')
-
-
-        if self.last_text == ';' or self.last_type == 'TK_START_BLOCK':
-            self.append_newline()
-        elif self.last_type in ['TK_END_EXPR', 'TK_START_EXPR', 'TK_END_BLOCK'] or self.last_text == '.':
-            # do nothing on (( and )( and ][ and ]( and .(
-            if self.wanted_newline:
-                self.append_newline();
-        elif self.last_type not in ['TK_WORD', 'TK_OPERATOR']:
-            self.append(' ')
-        elif self.last_word == 'function' or self.last_word == 'typeof':
-            # function() vs function (), typeof() vs typeof ()
-            if self.opts.jslint_happy:
-                self.append(' ')
-        elif self.last_text in self.line_starters or self.last_text == 'catch':
-            self.append(' ')
-
-        self.append(token_text)
-
-
-    def handle_end_expr(self, token_text):
-        if token_text == ']':
-            if self.opts.keep_array_indentation:
-                if self.last_text == '}':
-                    self.remove_indent()
-                    self.append(token_text)
-                    self.restore_mode()
-                    return
-            else:
-                if self.flags.mode == '[INDENTED-EXPRESSION]':
-                    if self.last_text == ']':
-                        self.restore_mode()
-                        self.append_newline()
-                        self.append(token_text)
-                        return
-        self.restore_mode()
-        self.append(token_text)
+      if parser_pos < len(@input)
+        if sep == '/'
+          # handle regexp
+          in_char_class = false
+          while esc or in_char_class or @input[parser_pos] != sep
+            resulting_string += @input[parser_pos]
+            if not esc
+              esc = @input[parser_pos] == '\\'
+              if @input[parser_pos] == '['
+                in_char_class = true
+              else if @input[parser_pos] == ']'
+                in_char_class = false
+            else
+              esc = false
+            parser_pos += 1
+            if parser_pos >= len(@input)
+              # incomplete regex when end-of-file reached
+              # bail out with what has received so far
+              return [resulting_string, 'TK_STRING']
+        else
+          # handle string
+          while esc or @input[parser_pos] != sep
+            resulting_string += @input[parser_pos]
+            if esc1 and esc1 >= esc2
+              try
+                esc1 = int(resulting_string[-esc2], 16)
+              catch e
+                esc1 = false
+              if esc1 and esc1 >= 0x20 and esc1 <= 0x7e
+                esc1 = chr(esc1)
+                resulting_string = resulting_string[..-2 - esc2]
+                if esc1 == sep or esc1 == '\\'
+                  resulting_string += '\\'
+                resulting_string += esc1
+              esc1 = 0
+            if esc1
+              esc1 += 1
+            else if not esc
+              esc = @input[parser_pos] == '\\'
+            else
+              esc = false
+              if @opts.unescape_strings
+                if @input[parser_pos] == 'x'
+                  esc1 += 1
+                  esc2 = 2
+                else if @input[parser_pos] == 'u'
+                  esc1 += 1
+                  esc2 = 4
+            parser_pos += 1
+            if parser_pos >= len(@input)
+              # incomplete string when end-of-file reached
+              # bail out with what has received so far
+              return [resulting_string, 'TK_STRING']
 
 
-    def handle_start_block(self, token_text):
-        if self.last_word == 'do':
-            self.set_mode('DO_BLOCK')
-        else:
-            self.set_mode('BLOCK')
+      parser_pos += 1
+      resulting_string += sep
+      if sep == '/'
+        # regexps may have modifiers /regexp/MOD, so fetch those too
+        while parser_pos < len(@input) and @input[parser_pos] in WORDCHAR
+          resulting_string += @input[parser_pos]
+          parser_pos += 1
+      return [resulting_string, 'TK_STRING']
 
-        if self.opts.brace_style == 'expand':
-            if self.last_type != 'TK_OPERATOR':
-                if self.last_text == '=' or (self.is_special_word(self.last_text) and self.last_text != 'else'):
-                    self.append(' ')
-                else:
-                    self.append_newline(True)
+    if c == '#'
 
-            self.append(token_text)
-            self.indent()
-        else:
-            if self.last_type not in ['TK_OPERATOR', 'TK_START_EXPR']:
-                if self.last_type == 'TK_START_BLOCK':
-                    self.append_newline()
-                else:
-                    self.append(' ')
-            else:
-                # if TK_OPERATOR or TK_START_EXPR
-                if self.is_array(self.flags.previous_mode) and self.last_text == ',':
-                    if self.last_last_text == '}':
-                        self.append(' ')
-                    else:
-                        self.append_newline()
-            self.indent()
-            self.append(token_text)
+      # she-bang
+      if len(@output) == 0 and len(@input) > 1 and @input[parser_pos] == '!'
+        resulting_string = c
+        while parser_pos < len(@input) and c != '\n'
+          c = @input[parser_pos]
+          resulting_string += c
+          parser_pos += 1
+        @output.append(resulting_string.strip() + "\n")
+        @append_newline()
+        return @get_next_token()
 
 
-    def handle_end_block(self, token_text):
-        self.restore_mode()
-        if self.opts.brace_style == 'expand':
-            if self.last_text != '{':
-                self.append_newline()
-        else:
-            if self.last_type == 'TK_START_BLOCK':
-                if self.just_added_newline:
-                    self.remove_indent()
-                else:
-                    # {}
-                    self.trim_output()
-            else:
-                if self.is_array(self.flags.mode) and self.opts.keep_array_indentation:
-                    self.opts.keep_array_indentation = False
-                    self.append_newline()
-                    self.opts.keep_array_indentation = True
-                else:
-                    self.append_newline()
+      # Spidermonkey-specific sharp variables for circular references
+      # https//developer.mozilla.org/En/Sharp_variables_in_JavaScript
+      # http://mxr.mozilla.org/mozilla-central/source/js/src/jsscan.cpp
+      #   around line 1935
+      sharp = '#'
+      if parser_pos < len(@input) and @input[parser_pos] in DIGITS
+        while true
+          c = @input[parser_pos]
+          sharp += c
+          parser_pos += 1
+          if parser_pos >= len(@input)  or c == '#' or c == '='
+            break
+      if c == '#' or parser_pos >= len(@input)
+        # pass
+      else if @input[parser_pos] == '[' and @input[parser_pos + 1] == ']'
+        sharp += '[]'
+        parser_pos += 2
+      else if @input[parser_pos] == '{' and @input[parser_pos + 1] == '}'
+        sharp += '{}'
+        parser_pos += 2
+      return [sharp, 'TK_WORD']
 
-        self.append(token_text)
+    if c == '<' and @input[parser_pos - 1 ... parser_pos + 3] == '<!--'
+      parser_pos += 3
+      c = '<!--'
+      while parser_pos < len(@input) and @input[parser_pos] != '\n'
+        c += @input[parser_pos]
+        parser_pos += 1
+      @flags.in_html_comment = true
+      return [c, 'TK_COMMENT']
+
+    if c == '-' and
+        @flags.in_html_comment and
+        @input[parser_pos - 1  ... parser_pos + 2] == '-->'
+
+      @flags.in_html_comment = false
+      parser_pos += 2
+      if @wanted_newline
+        @append_newline()
+      return ['-->', 'TK_COMMENT']
+
+    if c in PUNCT
+      while parser_pos < len(@input) and c + @input[parser_pos] in PUNCT
+        c += @input[parser_pos]
+        parser_pos += 1
+        if parser_pos >= len(@input)
+          break
+      if c == '='
+        return [c, 'TK_EQUALS']
+
+      if c == ','
+        return [c, 'TK_COMMA']
+      return [c, 'TK_OPERATOR']
+
+    return [c, 'TK_UNKNOWN']
 
 
-    def handle_word(self, token_text):
-        if self.do_block_just_closed:
-            self.append(' ')
-            self.append(token_text)
-            self.append(' ')
-            self.do_block_just_closed = False
+
+  handle_start_expr: (token_text) ->
+    if token_text == '['
+      if @last_type == 'TK_WORD' or @last_text == ')'
+        if @last_text in LINE_STARTERS
+          @append(' ')
+        @set_mode('(EXPRESSION)')
+        @append(token_text)
+        return
+
+      if @flags.mode in ['[EXPRESSION]', '[INDENTED-EXPRESSION]']
+        if @last_last_text == ']' and @last_text == ','
+          # ], [ goes to a new line
+          if @flags.mode == '[EXPRESSION]'
+            @flags.mode = '[INDENTED-EXPRESSION]'
+            if not @opts.keep_array_indentation
+              @indent()
+          @set_mode('[EXPRESSION]')
+          if not @opts.keep_array_indentation
+            @append_newline()
+        else if @last_text == '['
+          if @flags.mode == '[EXPRESSION]'
+            @flags.mode = '[INDENTED-EXPRESSION]'
+            if not @opts.keep_array_indentation
+              @indent()
+          @set_mode('[EXPRESSION]')
+
+          if not @opts.keep_array_indentation
+            @append_newline()
+        else
+          @set_mode('[EXPRESSION]')
+      else
+        @set_mode('[EXPRESSION]')
+    else
+      if @last_text == 'for'
+        @set_mode('(FOR-EXPRESSION)')
+      else if @last_text in ['if', 'while']
+        @set_mode('(COND-EXPRESSION)')
+      else
+        @set_mode('(EXPRESSION)')
+
+
+    if @last_text == ';' or @last_type == 'TK_START_BLOCK'
+      @append_newline()
+    else if @last_type in ['TK_END_EXPR', 'TK_START_EXPR', 'TK_END_BLOCK'] or
+        @last_text == '.'
+
+      # do nothing on (( and )( and ][ and ]( and .(
+      if @wanted_newline
+        @append_newline()
+    else if @last_type not in ['TK_WORD', 'TK_OPERATOR']
+      @append(' ')
+    else if @last_word == 'function' or @last_word == 'typeof'
+      # function() vs function (), typeof() vs typeof ()
+      if @opts.jslint_happy
+        @append(' ')
+    else if @last_text in LINE_STARTERS or @last_text == 'catch'
+      @append(' ')
+
+    @append(token_text)
+
+
+  handle_end_expr (token_text) ->
+    if token_text == ']'
+      if @opts.keep_array_indentation
+        if @last_text == '}'
+          @remove_indent()
+          @append(token_text)
+          @restore_mode()
+          return
+      else
+        if @flags.mode == '[INDENTED-EXPRESSION]'
+          if @last_text == ']'
+            @restore_mode()
+            @append_newline()
+            @append(token_text)
             return
-
-        if token_text == 'function':
-
-            if self.flags.var_line and self.last_text != '=':
-                self.flags.var_line_reindented = not self.opts.keep_function_indentation
-            if (self.just_added_newline or self.last_text == ';') and self.last_text != '{':
-                # make sure there is a nice clean space of at least one blank line
-                # before a new function definition
-                have_newlines = self.n_newlines
-                if not self.just_added_newline:
-                    have_newlines = 0
-                if not self.opts.preserve_newlines:
-                    have_newlines = 1
-                for i in range(2 - have_newlines):
-                    self.append_newline(False)
-
-            if self.last_text in ['get', 'set', 'new'] or self.last_type == 'TK_WORD':
-                self.append(' ')
-
-            if self.last_type == 'TK_WORD':
-                if self.last_text in ['get', 'set', 'new', 'return']:
-                    self.append(' ')
-                else:
-                    self.append_newline()
-            elif self.last_type == 'TK_OPERATOR' or self.last_text == '=':
-                # foo = function
-                self.append(' ')
-            elif self.is_expression(self.flags.mode):
-                # (function
-                pass
-            else:
-                self.append_newline()
-
-            self.append('function')
-            self.last_word = 'function'
-            return
-
-        if token_text == 'case' or (token_text == 'default' and self.flags.in_case_statement):
-            if self.last_text == ':':
-                self.remove_indent()
-            else:
-                self.flags.indentation_level -= 1
-                self.append_newline()
-                self.flags.indentation_level += 1
-            self.append(token_text)
-            self.flags.in_case = True
-            self.flags.in_case_statement = True
-            return
-
-        prefix = 'NONE'
-
-        if self.last_type == 'TK_END_BLOCK':
-            if token_text not in ['else', 'catch', 'finally']:
-                prefix = 'NEWLINE'
-            else:
-                if self.opts.brace_style in ['expand', 'end-expand']:
-                    prefix = 'NEWLINE'
-                else:
-                    prefix = 'SPACE'
-                    self.append(' ')
-        elif self.last_type == 'TK_SEMICOLON' and self.flags.mode in ['BLOCK', 'DO_BLOCK']:
-            prefix = 'NEWLINE'
-        elif self.last_type == 'TK_SEMICOLON' and self.is_expression(self.flags.mode):
-            prefix = 'SPACE'
-        elif self.last_type == 'TK_STRING':
-            prefix = 'NEWLINE'
-        elif self.last_type == 'TK_WORD':
-            if self.last_text == 'else':
-                # eat newlines between ...else *** some_op...
-                # won't preserve extra newlines in this place (if any), but don't care that much
-                self.trim_output(True)
-            prefix = 'SPACE'
-        elif self.last_type == 'TK_START_BLOCK':
-            prefix = 'NEWLINE'
-        elif self.last_type == 'TK_END_EXPR':
-            self.append(' ')
-            prefix = 'NEWLINE'
-
-        if self.flags.if_line and self.last_type == 'TK_END_EXPR':
-            self.flags.if_line = False
-
-        if token_text in self.line_starters:
-            if self.last_text == 'else':
-                prefix = 'SPACE'
-            else:
-                prefix = 'NEWLINE'
-
-        if token_text in ['else', 'catch', 'finally']:
-            if self.last_type != 'TK_END_BLOCK' \
-               or self.opts.brace_style == 'expand' \
-               or self.opts.brace_style == 'end-expand':
-                self.append_newline()
-            else:
-                self.trim_output(True)
-                self.append(' ')
-        elif prefix == 'NEWLINE':
-            if self.is_special_word(self.last_text):
-                # no newline between return nnn
-                self.append(' ')
-            elif self.last_type != 'TK_END_EXPR':
-                if (self.last_type != 'TK_START_EXPR' or token_text != 'var') and self.last_text != ':':
-                    # no need to force newline on VAR -
-                    # for (var x = 0...
-                    if token_text == 'if' and self.last_word == 'else' and self.last_text != '{':
-                        self.append(' ')
-                    else:
-                        self.flags.var_line = False
-                        self.flags.var_line_reindented = False
-                        self.append_newline()
-            elif token_text in self.line_starters and self.last_text != ')':
-                self.flags.var_line = False
-                self.flags.var_line_reindented = False
-                self.append_newline()
-        elif self.is_array(self.flags.mode) and self.last_text == ',' and self.last_last_text == '}':
-            self.append_newline() # }, in lists get a newline
-        elif prefix == 'SPACE':
-            self.append(' ')
-
-
-        self.append(token_text)
-        self.last_word = token_text
-
-        if token_text == 'var':
-            self.flags.var_line = True
-            self.flags.var_line_reindented = False
-            self.flags.var_line_tainted = False
-
-
-        if token_text == 'if':
-            self.flags.if_line = True
-
-        if token_text == 'else':
-            self.flags.if_line = False
-
-
-    def handle_semicolon(self, token_text):
-        self.append(token_text)
-        self.flags.var_line = False
-        self.flags.var_line_reindented = False
-        if self.flags.mode == 'OBJECT':
-            # OBJECT mode is weird and doesn't get reset too well.
-            self.flags.mode = 'BLOCK'
-
-
-    def handle_string(self, token_text):
-        if self.last_type == 'TK_END_EXPR' and self.flags.previous_mode in ['(COND-EXPRESSION)', '(FOR-EXPRESSION)']:
-            self.append(' ')
-        if self.last_type in ['TK_COMMENT', 'TK_STRING', 'TK_START_BLOCK', 'TK_END_BLOCK', 'TK_SEMICOLON']:
-            self.append_newline()
-        elif self.last_type == 'TK_WORD':
-            self.append(' ')
-
-        self.append(token_text)
-
-
-    def handle_equals(self, token_text):
-        if self.flags.var_line:
-            # just got an '=' in a var-line, different line breaking rules will apply
-            self.flags.var_line_tainted = True
-
-        self.append(' ')
-        self.append(token_text)
-        self.append(' ')
-
-
-    def handle_comma(self, token_text):
-
-
-        if self.last_type == 'TK_COMMENT':
-            self.append_newline();
-
-        if self.flags.var_line:
-            if self.is_expression(self.flags.mode) or self.last_type == 'TK_END_BLOCK':
-                # do not break on comma, for ( var a = 1, b = 2
-                self.flags.var_line_tainted = False
-            if self.flags.var_line_tainted:
-                self.append(token_text)
-                self.flags.var_line_reindented = True
-                self.flags.var_line_tainted = False
-                self.append_newline()
-                return
-            else:
-                self.flags.var_line_tainted = False
-
-            self.append(token_text)
-            self.append(' ');
-            return
-
-        if self.last_type == 'TK_END_BLOCK' and self.flags.mode != '(EXPRESSION)':
-            self.append(token_text)
-            if self.flags.mode == 'OBJECT' and self.last_text == '}':
-                self.append_newline()
-            else:
-                self.append(' ')
-        else:
-            if self.flags.mode == 'OBJECT':
-                self.append(token_text)
-                self.append_newline()
-            else:
-                # EXPR or DO_BLOCK
-                self.append(token_text)
-                self.append(' ')
-
-
-    def handle_operator(self, token_text):
-        space_before = True
-        space_after = True
-
-        if self.is_special_word(self.last_text):
-            # return had a special handling in TK_WORD
-            self.append(' ')
-            self.append(token_text)
-            return
-
-        # hack for actionscript's import .*;
-        if token_text == '*' and self.last_type == 'TK_UNKNOWN' and not self.last_last_text.isdigit():
-            self.append(token_text)
-            return
-
-
-        if token_text == ':' and self.flags.in_case:
-            self.append(token_text)
-            self.append_newline()
-            self.flags.in_case = False
-            return
-
-        if token_text == '::':
-            # no spaces around the exotic namespacing syntax operator
-            self.append(token_text)
-            return
-
-
-        if token_text in ['--', '++', '!'] \
-                or (token_text in ['+', '-'] \
-                    and (self.last_type in ['TK_START_BLOCK', 'TK_START_EXPR', 'TK_EQUALS', 'TK_OPERATOR'] \
-                    or self.last_text in self.line_starters)):
-
-            space_before = False
-            space_after = False
-
-            if self.last_text == ';' and self.is_expression(self.flags.mode):
-                # for (;; ++i)
-                #         ^^
-                space_before = True
-
-            if self.last_type == 'TK_WORD' and self.last_text in self.line_starters:
-                space_before = True
-
-            if self.flags.mode == 'BLOCK' and self.last_text in ['{', ';']:
-                # { foo: --i }
-                # foo(): --bar
-                self.append_newline()
-
-        elif token_text == '.':
-            # decimal digits or object.property
-            space_before = False
-
-        elif token_text == ':':
-            if self.flags.ternary_depth == 0:
-                if self.flags.mode == 'BLOCK':
-                    self.flags.mode = 'OBJECT'
-                space_before = False
-            else:
-                self.flags.ternary_depth -= 1
-        elif token_text == '?':
-            self.flags.ternary_depth += 1
-
-        if space_before:
-            self.append(' ')
-
-        self.append(token_text)
-
-        if space_after:
-            self.append(' ')
-
-
-
-    def handle_block_comment(self, token_text):
-
-        lines = token_text.replace('\x0d', '').split('\x0a')
-        # all lines start with an asterisk? that's a proper box comment
-        if not any(l for l in lines[1:] if ( l.strip() == '' or (l.lstrip())[0] != '*')):
-            self.append_newline()
-            self.append(lines[0])
-            for line in lines[1:]:
-                self.append_newline()
-                self.append(' ' + line.strip())
-        else:
-            # simple block comment: leave intact
-            if len(lines) > 1:
-                # multiline comment starts on a new line
-                self.append_newline()
-            else:
-                # single line /* ... */ comment stays on the same line
-                self.append(' ')
-            for line in lines:
-                self.append(line)
-                self.append('\n')
-        self.append_newline()
-
-
-    def handle_inline_comment(self, token_text):
-        self.append(' ')
-        self.append(token_text)
-        if self.is_expression(self.flags.mode):
-            self.append(' ')
-        else:
-            self.append_newline_forced()
-
-
-    def handle_comment(self, token_text):
-        if self.last_text == ',' and not self.wanted_newline:
-            self.trim_output(True)
-
-        if self.last_type != 'TK_COMMENT':
-            if self.wanted_newline:
-                self.append_newline()
-            else:
-                self.append(' ')
-
-        self.append(token_text)
-        self.append_newline();
-
-
-    def handle_unknown(self, token_text):
-        if self.last_text in ['return', 'throw']:
-            self.append(' ')
-
-        self.append(token_text)
-
-
-
-
-
-def main():
-
-    argv = sys.argv[1:]
-
-    try:
-        opts, args = getopt.getopt(argv, "s:c:o:djbkil:xhtf", ['indent-size=','indent-char=','outfile=', 'disable-preserve-newlines',
-                                                          'jslint-happy', 'brace-style=',
-                                                          'keep-array-indentation', 'indent-level=', 'unescape-strings', 'help',
-                                                          'usage', 'stdin', 'eval-code', 'indent-with-tabs', 'keep-function-indentation'])
-    except getopt.GetoptError:
-        return usage()
-
-    js_options = default_options()
-
-    file = None
-    outfile = 'stdout'
-    if len(args) == 1:
-        file = args[0]
-
-    for opt, arg in opts:
-        if opt in ('--keep-array-indentation', '-k'):
-            js_options.keep_array_indentation = True
-        if opt in ('--keep-function-indentation','-f'):
-            js_options.keep_function_indentation = True
-        elif opt in ('--outfile', '-o'):
-            outfile = arg
-        elif opt in ('--indent-size', '-s'):
-            js_options.indent_size = int(arg)
-        elif opt in ('--indent-char', '-c'):
-            js_options.indent_char = arg
-        elif opt in ('--indent-with-tabs', '-t'):
-            js_options.indent_with_tabs = True
-        elif opt in ('--disable-preserve_newlines', '-d'):
-            js_options.preserve_newlines = False
-        elif opt in ('--jslint-happy', '-j'):
-            js_options.jslint_happy = True
-        elif opt in ('--eval-code'):
-            js_options.eval_code = True
-        elif opt in ('--brace-style', '-b'):
-            js_options.brace_style = arg
-        elif opt in ('--unescape-strings', '-x'):
-            js_options.unescape_strings = True
-        elif opt in ('--stdin', '-i'):
-            file = '-'
-        elif opt in ('--help', '--usage', '-h'):
-            return usage()
-
-    if not file:
-        return usage()
-    else:
-        if outfile == 'stdout':
-            print(beautify_file(file, js_options))
-        else:
-            with open(outfile, 'w') as f:
-                f.write(beautify_file(file, js_options) + '\n')
+    @restore_mode()
+    @append(token_text)
+
+
+  handle_start_block: (token_text) ->
+    if @last_word == 'do'
+      @set_mode('DO_BLOCK')
+    else
+      @set_mode('BLOCK')
+
+    if @opts.brace_style == 'expand'
+      if @last_type != 'TK_OPERATOR'
+        if @last_text == '=' or
+            (@is_special_word(@last_text) and @last_text != 'else')
+
+          @append(' ')
+        else
+          @append_newline(true)
+
+      @append(token_text)
+      @indent()
+    else
+      if @last_type not in ['TK_OPERATOR', 'TK_START_EXPR']
+        if @last_type == 'TK_START_BLOCK'
+          @append_newline()
+        else
+          @append(' ')
+      else
+        # if TK_OPERATOR or TK_START_EXPR
+        if @is_array(@flags.previous_mode) and @last_text == ','
+          if @last_last_text == '}'
+            @append(' ')
+          else
+            @append_newline()
+      @indent()
+      @append(token_text)
+
+
+  handle_end_block: (token_text) ->
+    @restore_mode()
+    if @opts.brace_style == 'expand'
+      if @last_text != '{'
+        @append_newline()
+    else
+      if @last_type == 'TK_START_BLOCK'
+        if @just_added_newline
+          @remove_indent()
+        else
+          # {}
+          @trim_output()
+      else
+        if @is_array(@flags.mode) and @opts.keep_array_indentation
+          @opts.keep_array_indentation = false
+          @append_newline()
+          @opts.keep_array_indentation = true
+        else
+          @append_newline()
+
+    @append(token_text)
+
+
+  handle_word: (token_text) ->
+    if @do_block_just_closed
+      @append(' ')
+      @append(token_text)
+      @append(' ')
+      @do_block_just_closed = false
+      return
+
+    if token_text == 'function'
+
+      if @flags.var_line and @last_text != '='
+        @flags.var_line_reindented = not @opts.keep_function_indentation
+      if (@just_added_newline or @last_text == ';') and @last_text != '{'
+        # make sure there is a nice clean space of at least one blank line
+        # before a new function definition
+        have_newlines = @n_newlines
+        if not @just_added_newline
+          have_newlines = 0
+        if not @opts.preserve_newlines
+          have_newlines = 1
+        for i in range(2 - have_newlines)
+          @append_newline(false)
+
+      if @last_text in ['get', 'set', 'new'] or @last_type == 'TK_WORD'
+        @append(' ')
+
+      if @last_type == 'TK_WORD'
+        if @last_text in ['get', 'set', 'new', 'return']
+          @append(' ')
+        else
+          @append_newline()
+      else if @last_type == 'TK_OPERATOR' or @last_text == '='
+        # foo = function
+        @append(' ')
+      else if @is_expression(@flags.mode)
+        # pass
+      else
+        @append_newline()
+
+      @append('function')
+      @last_word = 'function'
+      return
+
+    if token_text == 'case' or
+        (token_text == 'default' and @flags.in_case_statement)
+
+      if @last_text == ':'
+        @remove_indent()
+      else
+        @flags.indentation_level -= 1
+        @append_newline()
+        @flags.indentation_level += 1
+      @append(token_text)
+      @flags.in_case = true
+      @flags.in_case_statement = true
+      return
+
+    prefix = 'NONE'
+
+    if @last_type == 'TK_END_BLOCK'
+      if token_text not in ['else', 'catch', 'finally']
+        prefix = 'NEWLINE'
+      else
+        if @opts.brace_style in ['expand', 'end-expand']
+          prefix = 'NEWLINE'
+        else
+          prefix = 'SPACE'
+          @append(' ')
+    else if @last_type == 'TK_SEMICOLON' and
+        @flags.mode in ['BLOCK', 'DO_BLOCK']
+
+      prefix = 'NEWLINE'
+    else if @last_type == 'TK_SEMICOLON' and
+        @is_expression(@flags.mode)
+
+      prefix = 'SPACE'
+    else if @last_type == 'TK_STRING'
+      prefix = 'NEWLINE'
+    else if @last_type == 'TK_WORD'
+      if @last_text == 'else'
+        # eat newlines between ...else *** some_op...
+        # won't preserve extra newlines in this place (if any),
+        # but don't care that much
+        @trim_output(true)
+      prefix = 'SPACE'
+    else if @last_type == 'TK_START_BLOCK'
+      prefix = 'NEWLINE'
+    else if @last_type == 'TK_END_EXPR'
+      @append(' ')
+      prefix = 'NEWLINE'
+
+    if @flags.if_line and @last_type == 'TK_END_EXPR'
+      @flags.if_line = false
+
+    if token_text in LINE_STARTERS
+      if @last_text == 'else'
+        prefix = 'SPACE'
+      else
+        prefix = 'NEWLINE'
+
+    if token_text in ['else', 'catch', 'finally']
+      if @last_type != 'TK_END_BLOCK' \
+         or @opts.brace_style == 'expand' \
+         or @opts.brace_style == 'end-expand'
+        @append_newline()
+      else
+        @trim_output(true)
+        @append(' ')
+    else if prefix == 'NEWLINE'
+      if @is_special_word(@last_text)
+        # no newline between return nnn
+        @append(' ')
+      else if @last_type != 'TK_END_EXPR'
+        if (@last_type != 'TK_START_EXPR' or token_text != 'var') and
+            @last_text != ':'
+
+          # no need to force newline on VAR -
+          # for (var x = 0...
+          if token_text == 'if' and @last_word == 'else' and @last_text != '{'
+            @append(' ')
+          else
+            @flags.var_line = false
+            @flags.var_line_reindented = false
+            @append_newline()
+      else if token_text in LINE_STARTERS and @last_text != ')'
+        @flags.var_line = false
+        @flags.var_line_reindented = false
+        @append_newline()
+    else if @is_array(@flags.mode) and
+        @last_text == ',' and
+        @last_last_text == '}'
+
+      @append_newline() # }, in lists get a newline
+    else if prefix == 'SPACE'
+      @append(' ')
+
+
+    @append(token_text)
+    @last_word = token_text
+
+    if token_text == 'var'
+      @flags.var_line = true
+      @flags.var_line_reindented = false
+      @flags.var_line_tainted = false
+
+
+    if token_text == 'if'
+      @flags.if_line = true
+
+    if token_text == 'else'
+      @flags.if_line = false
+
+
+  handle_semicolon (token_text) ->
+    @append(token_text)
+    @flags.var_line = false
+    @flags.var_line_reindented = false
+    if @flags.mode == 'OBJECT'
+      # OBJECT mode is weird and doesn't get reset too well.
+      @flags.mode = 'BLOCK'
+
+
+  handle_string (token_text) ->
+    if @last_type == 'TK_END_EXPR' and
+        @flags.previous_mode in ['(COND-EXPRESSION)', '(FOR-EXPRESSION)']
+
+      @append(' ')
+    if @last_type in ['TK_COMMENT', 'TK_STRING', 'TK_START_BLOCK',
+                      'TK_END_BLOCK', 'TK_SEMICOLON']
+
+      @append_newline()
+    else if @last_type == 'TK_WORD'
+      @append(' ')
+
+    @append(token_text)
+
+
+  handle_equals (token_text) ->
+    if @flags.var_line
+      # just got an '=' in a var-line, different line breaking rules will apply
+      @flags.var_line_tainted = true
+
+    @append(' ')
+    @append(token_text)
+    @append(' ')
+
+
+  handle_comma: (token_text) ->
+
+
+    if @last_type == 'TK_COMMENT'
+      @append_newline()
+
+    if @flags.var_line
+      if @is_expression(@flags.mode) or @last_type == 'TK_END_BLOCK'
+        # do not break on comma, for ( var a = 1, b = 2
+        @flags.var_line_tainted = false
+      if @flags.var_line_tainted
+        @append(token_text)
+        @flags.var_line_reindented = true
+        @flags.var_line_tainted = false
+        @append_newline()
+        return
+      else
+        @flags.var_line_tainted = false
+
+      @append(token_text)
+      @append(' ')
+      return
+
+    if @last_type == 'TK_END_BLOCK' and @flags.mode != '(EXPRESSION)'
+      @append(token_text)
+      if @flags.mode == 'OBJECT' and @last_text == '}'
+        @append_newline()
+      else
+        @append(' ')
+    else
+      if @flags.mode == 'OBJECT'
+        @append(token_text)
+        @append_newline()
+      else
+        # EXPR or DO_BLOCK
+        @append(token_text)
+        @append(' ')
+
+
+  handle_operator (token_text) ->
+    space_before = true
+    space_after = true
+
+    if @is_special_word(@last_text)
+      # return had a special handling in TK_WORD
+      @append(' ')
+      @append(token_text)
+      return
+
+    # hack for actionscript's import .*;
+    if token_text == '*' and
+        @last_type == 'TK_UNKNOWN' and
+        not @last_last_text.isdigit()
+
+      @append(token_text)
+      return
+
+
+    if token_text == ':' and @flags.in_case
+      @append(token_text)
+      @append_newline()
+      @flags.in_case = false
+      return
+
+    if token_text == '::'
+      # no spaces around the exotic namespacing syntax operator
+      @append(token_text)
+      return
+
+
+    if token_text in ['--', '++', '!'] or
+        (token_text in ['+', '-'] and
+          (@last_type in ['TK_START_BLOCK',
+                          'TK_START_EXPR',
+                          'TK_EQUALS',
+                          'TK_OPERATOR'] or @last_text in LINE_STARTERS))
+
+      space_before = false
+      space_after = false
+
+      if @last_text == ';' and @is_expression(@flags.mode)
+        # for (;; ++i)
+        #     ^^
+        space_before = true
+
+      if @last_type == 'TK_WORD' and @last_text in LINE_STARTERS
+        space_before = true
+
+      if @flags.mode == 'BLOCK' and @last_text in ['{', ';']
+        # { foo --i }
+        # foo(): --bar
+        @append_newline()
+
+    else if token_text == '.'
+      # decimal digits or object.property
+      space_before = false
+
+    else if token_text == ':'
+      if @flags.ternary_depth == 0
+        if @flags.mode == 'BLOCK'
+          @flags.mode = 'OBJECT'
+        space_before = false
+      else
+        @flags.ternary_depth -= 1
+    else if token_text == '?'
+      @flags.ternary_depth += 1
+
+    if space_before
+      @append(' ')
+
+    @append(token_text)
+
+    if space_after
+      @append(' ')
+
+
+
+  handle_block_comment (token_text) ->
+
+    lines = token_text.replace('\x0d', '').split('\x0a')
+    # all lines start with an asterisk? that's a proper box comment
+    asterisk_lines =
+      l for l in lines[1..] when ( l.strip() == '' or (l.lstrip())[0] != '*')
+
+    if not _.any(asterisk_lines)
+
+      @append_newline()
+      @append(lines[0])
+      for line in lines[1..]
+        @append_newline()
+        @append(' ' + line.strip())
+    else
+      # simple block comment: leave intact
+      if len(lines) > 1
+        # multiline comment starts on a new line
+        @append_newline()
+      else
+        # single line /* ... */ comment stays on the same line
+        @append(' ')
+      for line in lines
+        @append(line)
+        @append('\n')
+    @append_newline()
+
+
+  handle_inline_comment: (token_text) ->
+    @append(' ')
+    @append(token_text)
+    if @is_expression(@flags.mode)
+      @append(' ')
+    else
+      @append_newline_forced()
+
+
+  handle_comment: (token_text) ->
+    if @last_text == ',' and not @wanted_newline
+      @trim_output(true)
+
+    if @last_type != 'TK_COMMENT'
+      if @wanted_newline
+        @append_newline()
+      else
+        @append(' ')
+
+    @append(token_text)
+    @append_newline()
+
+
+  handle_unknown: (token_text) ->
+    if @last_text in ['return', 'throw']
+      @append(' ')
+
+    @append(token_text)
+
+
+
+
+
+main = () ->
+  mod_getopt = require 'posix-getopt'
+  optparser = new mod_getopt.BasicParser("s:c:o:(output)djbkil:xhtf",
+     ['indent-size=','indent-char=','outfile=', 'disable-preserve-newlines',
+      'jslint-happy', 'brace-style=',
+      'keep-array-indentation', 'indent-level=', 'unescape-strings', 'help',
+      'usage', 'stdin', 'eval-code', 'indent-with-tabs',
+      'keep-function-indentation'],
+      process.argv)
+
+  while (option = parser.getopt()) isnt undefined and not option.error
+    console.error option
+
+
+  console.log(option)
+  process.exit()
+
+  # js_options = default_options()
+
+  # file = None
+  # outfile = 'stdout'
+  # if len(args) == 1
+  #   file = args[0]
+
+  # for [opt, arg] in opts
+  #   if opt in ('--keep-array-indentation', '-k')
+  #     js_options.keep_array_indentation = true
+  #   if opt in ('--keep-function-indentation','-f')
+  #     js_options.keep_function_indentation = true
+  #   else if opt in ('--outfile', '-o')
+  #     outfile = arg
+  #   else if opt in ('--indent-size', '-s')
+  #     js_options.indent_size = int(arg)
+  #   else if opt in ('--indent-char', '-c')
+  #     js_options.indent_char = arg
+  #   else if opt in ('--indent-with-tabs', '-t')
+  #     js_options.indent_with_tabs = true
+  #   else if opt in ('--disable-preserve_newlines', '-d')
+  #     js_options.preserve_newlines = false
+  #   else if opt in ('--jslint-happy', '-j')
+  #     js_options.jslint_happy = true
+  #   else if opt in ('--eval-code')
+  #     js_options.eval_code = true
+  #   else if opt in ('--brace-style', '-b')
+  #     js_options.brace_style = arg
+  #   else if opt in ('--unescape-strings', '-x')
+  #     js_options.unescape_strings = true
+  #   else if opt in ('--stdin', '-i')
+  #     file = '-'
+  #   else if opt in ('--help', '--usage', '-h')
+  #     return usage()
+
+  # if not file
+  #   return usage()
+  # else
+  #   print(beautify_file(file, js_options))
+
+main() unless module.parent

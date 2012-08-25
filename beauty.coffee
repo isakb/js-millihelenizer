@@ -10,28 +10,7 @@ _           = require 'underscore'
 _.str       = require 'underscore.string'
 
 
-WHITESPACE  = ["\n", "\r", "\t", " "]
-
-WORDCHAR    = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$'
-
-DIGITS      = '0123456789'
-
-PUNCT       = '''
-              + - * / % & ++ -- = += -= *= /= %= == === != !== > < >= <= >> <<
-              >>> >>>= >>= <<= && &= | || ! !! , : ? ^ ^= |= ::
-              <?= <? ?> <%= <% %>
-              '''.split(/\s+/)
-
-# Words which always should start on a new line
-LINE_STARTERS = '''
-              continue try throw return var if switch case default for
-              while break function
-              '''.split(' ')
-
-debug       = (x...) -> console.info.apply(console, x)  if process.env.DEBUG
-
 # Pythonic functions etc:
-None        = "THIS_IS_NONE" # FIXME: replace with undefined later
 
 len         = (x)    -> x.length
 
@@ -50,6 +29,29 @@ String::strip =      -> @replace(/^\s+|\s+$/g, '')
 String::lstrip =     -> @replace(/^\s+/g, '')
 
 String::isdigit =    -> /[0-9]/.test(@)
+
+
+# Contants
+
+WHITESPACE  = ["\n", "\r", "\t", " "]
+
+WORDCHAR    = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$'
+
+DIGITS      = '0123456789'
+
+PUNCT       = '''
+              + - * / % & ++ -- = += -= *= /= %= == === != !== > < >= <= >> <<
+              >>> >>>= >>= <<= && &= | || ! !! , : ? ^ ^= |= ::
+              <?= <? ?> <%= <% %>
+              '''.strip().split(/\s+/)
+
+# Words which always should start on a new line
+LINE_STARTERS = '''
+              continue try throw return var if switch case default for
+              while break function
+              '''.strip().split(/\s+/)
+
+debug       = (x...) -> console.info.apply(console, x)  if process.env.DEBUG
 
 $ =
   pos: undefined
@@ -109,7 +111,7 @@ class Beautifier
     @last_text = ''        # last token text
     @last_last_text = ''     # pre-last token text
 
-    @input = None
+    @input = undefined
     @output = []         # formatted javascript gets built here
 
 
@@ -1129,7 +1131,7 @@ main = () ->
 
   # js_options = default_options()
 
-  # file = None
+  # file = undefined
   # outfile = 'stdout'
   # if len(args) == 1
   #   file = args[0]

@@ -1,34 +1,7 @@
-import sys
-import getopt
-import re
-import string
-
-#
 # Originally written by Einar Lielmanis et al.,
 # Conversion to python by Einar Lielmanis, einar@jsbeautifier.org,
+# Conversion to cofeescript by Isak Bakken, isak@klarna.com,
 # MIT licence, enjoy.
-#
-# Python is not my native language, feel free to push things around.
-#
-# Use either from command line (script displays its usage when run
-# without any parameters),
-#
-#
-# or, alternatively, use it as a module:
-#
-#   import jsbeautifier
-#   res = jsbeautifier.beautify('your javascript string')
-#   res = jsbeautifier.beautify_file('some_file.js')
-#
-#  you may specify some options:
-#
-#   opts = jsbeautifier.default_options()
-#   opts.indent_size = 2
-#   res = jsbeautifier.beautify('some javascript', opts)
-#
-#
-# Here are the available options: (read source)
-
 
 class BeautifierOptions:
     def __init__(self):

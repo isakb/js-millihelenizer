@@ -35,6 +35,12 @@ range       = (a, b) -> if b is undefined then [0..a] else [a..b]
 
 print       = (x...) -> console.log.apply console, x
 
+int         = (n)    -> +(n|0)
+
+chr         = (n)    -> String.fromCharCode(n)
+
+open        = (f)    -> throw new Error('Not implemented')
+
 class BeautifierOptions
   constructor: ->
     @indent_size = 4
@@ -48,8 +54,6 @@ class BeautifierOptions
     @keep_function_indentation = false
     @eval_code = false
     @unescape_strings = false
-
-
 
   toString: ->
     return _.str.sprintf(
@@ -93,15 +97,14 @@ class BeautifierFlags
 
 
 default_options = ->
-  BeautifierOptions()
+  new BeautifierOptions()
 
 
 beautify = (string, opts = default_options() ) ->
-  b = Beautifier()
+  b = new Beautifier()
   return b.beautify(string, opts)
 
 beautify_file = (file_name, opts = default_options() ) ->
-
   if file_name == '-' # stdin
     f = sys.stdin
   else
@@ -110,25 +113,18 @@ beautify_file = (file_name, opts = default_options() ) ->
     catch ex
       return 'The file could not be opened'
 
-  b = Beautifier()
+  b = new Beautifier()
   return b.beautify(''.join(f.readlines()), opts)
 
 
-usage = ->
-  print "Javascript beautifier - increases the millihelens of your code."
-
-
 class Beautifier
-
   constructor : (opts = default_options() ) ->
-
     @opts = opts
     @blank_state()
 
   blank_state: ->
-
     # internal flags
-    @flags = BeautifierFlags('BLOCK')
+    @flags = new BeautifierFlags('BLOCK')
     @flag_store = []
     @wanted_newline = false
     @just_added_newline = false
@@ -156,10 +152,8 @@ class Beautifier
 
 
   beautify: (s, opts = None ) ->
-
     if opts != None
       @opts = opts
-
 
     if @opts.brace_style not in ['expand', 'collapse', 'end-expand']
       throw new Error(
@@ -234,7 +228,6 @@ class Beautifier
     @opts.keep_array_indentation = old_array_indentation
 
   append_newline: (ignore_repeated = true) ->
-
     @flags.eat_next_space = false
 
     if @opts.keep_array_indentation and @is_array(@flags.mode)
@@ -288,14 +281,13 @@ class Beautifier
 
 
   set_mode: (mode) ->
-
-    prev = BeautifierFlags('BLOCK')
+    prev = new BeautifierFlags('BLOCK')
 
     if @flags
       @flag_store.append(@flags)
       prev = @flags
 
-    @flags = BeautifierFlags(mode)
+    @flags = new BeautifierFlags(mode)
 
     if len(@flag_store) == 1
       @flags.indentation_level = 0
@@ -330,8 +322,6 @@ class Beautifier
     keep_whitespace = @opts.keep_array_indentation and @is_array(@flags.mode)
 
     if keep_whitespace
-
-
       # slight mess to allow nice preservation of array indentation and reindent
       # that correctly first time when we get to the arrays:
       #
@@ -343,7 +333,7 @@ class Beautifier
       # reindented source and afterwards, when we get to
       # 'something,
       # .......'something else'
-
+      #
       # we know that this should be indented to indent_level + (7 -
       # indentation_baseline) spaces
 

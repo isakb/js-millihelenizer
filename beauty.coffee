@@ -5,8 +5,10 @@
 
 'use strict'
 
+fs          = require 'fs'
 _           = require 'underscore'
 _.str       = require 'underscore.string'
+
 
 WHITESPACE  = ["\n", "\r", "\t", " "]
 
@@ -26,6 +28,8 @@ LINE_STARTERS = '''
               while break function
               '''.split(' ')
 
+debug       = (x...) -> console.info.apply(console, x)
+
 # Pythonic functions etc:
 None        = "THIS_IS_NONE" # FIXME: replace with undefined later
 
@@ -40,45 +44,6 @@ int         = (n)    -> +(n|0)
 chr         = (n)    -> String.fromCharCode(n)
 
 open        = (f)    -> throw new Error('Not implemented')
-
-class BeautifierOptions
-  constructor: ->
-    @indent_size = 4
-    @indent_char = ' '
-    @indent_with_tabs = false
-    @preserve_newlines = true
-    @max_preserve_newlines = 10
-    @jslint_happy = false
-    @brace_style = 'collapse'
-    @keep_array_indentation = false
-    @keep_function_indentation = false
-    @eval_code = false
-    @unescape_strings = false
-
-  toString: ->
-    return _.str.sprintf(
-      """indent_size = %d
-      indent_char = [%s]
-      preserve_newlines = %s
-      max_preserve_newlines = %d
-      jslint_happy = %s
-      indent_with_tabs = %s
-      brace_style = %s
-      keep_array_indentation = %s
-      eval_code = %s
-      unescape_strings = %s
-      """,
-      @indent_size,
-      @indent_char,
-      @preserve_newlines,
-      @max_preserve_newlines,
-      @jslint_happy,
-      @indent_with_tabs,
-      @brace_style,
-      @keep_array_indentation,
-      @eval_code,
-      @unescape_strings)
-
 
 class BeautifierFlags
   constructor: (@mode) ->
@@ -96,29 +61,23 @@ class BeautifierFlags
     @ternary_depth = 0
 
 
-default_options = ->
-  new BeautifierOptions()
+beautify = (string, opts) ->
+  return new Beautifier().beautify(string, opts)
 
+beautify_file = (file_name, opts) ->
+  if file_name == '-'
+    file_name = '/dev/stdin'
 
-beautify = (string, opts = default_options() ) ->
-  b = new Beautifier()
-  return b.beautify(string, opts)
+  try
+    str = fs.readFileSync(file_name).toString()
+  catch e
+    return "The file could not be opened: #{e}"
 
-beautify_file = (file_name, opts = default_options() ) ->
-  if file_name == '-' # stdin
-    f = sys.stdin
-  else
-    try
-      f = open(file_name)
-    catch ex
-      return 'The file could not be opened'
-
-  b = new Beautifier()
-  return b.beautify(''.join(f.readlines()), opts)
+  return beautify(str, options)
 
 
 class Beautifier
-  constructor : (opts = default_options() ) ->
+  constructor : (opts) ->
     @opts = opts
     @blank_state()
 
@@ -1120,20 +1079,51 @@ class Beautifier
     @append(token_text)
 
 
-
-
+options =
+  file:
+    position: 0
+    default: '-'
+    help: "The file to beautify. STDIN by default."
+  indent_size:
+    default: 4
+  indent_char:
+    default: ' '
+  indent_with_tabs:
+    flag: true
+    default: false
+  preserve_newlines:
+    flag: true
+    default: true
+  max_preserve_newlines:
+    default: 10
+  jslint_happy:
+    flag: true
+    default: false
+  brace_style:
+    default: 'collapse'
+  keep_array_indentation:
+    flag: true
+    default: false
+  keep_function_indentation:
+    flag: true
+    default: false
+  eval_code:
+    flag: true
+    default: false
+  unescape_strings:
+    flag: true
+    default: false
 
 main = () ->
-
-  js_options = default_options()
-  print js_options
-  process.exit()
   nomnom = require 'nomnom'
   args = nomnom
         .options(options)
-        .help('Increase the millihelens of your JS code easily')
-        .parse();
+        .help('Increase the millihelens of JavaScript code')
+        .parse()
 
+  debug("BEAUTIFY: #{args.file}")
+  debug(args)
+  print(beautify_file(args.file, args))
 
   # js_options = default_options()
 

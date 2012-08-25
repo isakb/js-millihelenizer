@@ -1124,21 +1124,16 @@ class Beautifier
 
 
 main = () ->
-  mod_getopt = require 'posix-getopt'
-  optparser = new mod_getopt.BasicParser("s:c:o:(output)djbkil:xhtf",
-     ['indent-size=','indent-char=','outfile=', 'disable-preserve-newlines',
-      'jslint-happy', 'brace-style=',
-      'keep-array-indentation', 'indent-level=', 'unescape-strings', 'help',
-      'usage', 'stdin', 'eval-code', 'indent-with-tabs',
-      'keep-function-indentation'],
-      process.argv)
 
-  while (option = optparser.getopt()) isnt undefined and not option.error
-    console.error option
-
-
-  console.log(option)
+  js_options = default_options()
+  print js_options
   process.exit()
+  nomnom = require 'nomnom'
+  args = nomnom
+        .options(options)
+        .help('Increase the millihelens of your JS code easily')
+        .parse();
+
 
   # js_options = default_options()
 

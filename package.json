@@ -1,0 +1,15 @@
+{
+  "author": "Isak Bakken <isak@klarna.com>",
+  "name": "millihelenizer",
+  "description": "Beautify you javascript",
+  "version": "0.0.0",
+  "repository": {
+    "url": ""
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "optionalDependencies": {},
+  "engines": {
+    "node": "*"
+  }
+}

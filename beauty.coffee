@@ -692,7 +692,7 @@ class Beautifier
     @append(token_text)
 
 
-  handle_end_expr (token_text) ->
+  handle_end_expr: (token_text) ->
     if token_text == ']'
       if @opts.keep_array_indentation
         if @last_text == '}'
@@ -921,7 +921,7 @@ class Beautifier
       @flags.if_line = false
 
 
-  handle_semicolon (token_text) ->
+  handle_semicolon: (token_text) ->
     @append(token_text)
     @flags.var_line = false
     @flags.var_line_reindented = false
@@ -930,7 +930,7 @@ class Beautifier
       @flags.mode = 'BLOCK'
 
 
-  handle_string (token_text) ->
+  handle_string: (token_text) ->
     if @last_type == 'TK_END_EXPR' and
         @flags.previous_mode in ['(COND-EXPRESSION)', '(FOR-EXPRESSION)']
 
@@ -945,7 +945,7 @@ class Beautifier
     @append(token_text)
 
 
-  handle_equals (token_text) ->
+  handle_equals: (token_text) ->
     if @flags.var_line
       # just got an '=' in a var-line, different line breaking rules will apply
       @flags.var_line_tainted = true
@@ -994,7 +994,7 @@ class Beautifier
         @append(' ')
 
 
-  handle_operator (token_text) ->
+  handle_operator: (token_text) ->
     space_before = true
     space_after = true
 
@@ -1072,7 +1072,7 @@ class Beautifier
 
 
 
-  handle_block_comment (token_text) ->
+  handle_block_comment: (token_text) ->
 
     lines = token_text.replace('\x0d', '').split('\x0a')
     # all lines start with an asterisk? that's a proper box comment
@@ -1143,7 +1143,7 @@ main = () ->
       'keep-function-indentation'],
       process.argv)
 
-  while (option = parser.getopt()) isnt undefined and not option.error
+  while (option = optparser.getopt()) isnt undefined and not option.error
     console.error option
 
 

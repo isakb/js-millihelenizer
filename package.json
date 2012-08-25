@@ -6,7 +6,11 @@
   "repository": {
     "url": ""
   },
-  "dependencies": {},
+  "dependencies": {
+    "underscore.string": "~2.2.0rc",
+    "posix-getopt": "~1.0.0",
+    "underscore": "~1.3.3"
+  },
   "devDependencies": {},
   "optionalDependencies": {},
   "engines": {

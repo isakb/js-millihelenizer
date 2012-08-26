@@ -1,3 +1,5 @@
+#!/usr/bin/env coffee
+
 # Originally written by Einar Lielmanis et al.,
 # Conversion to python by Einar Lielmanis, einar@jsbeautifier.org,
 # Conversion to cofeescript by Isak Bakken, isak@klarna.com,
@@ -11,15 +13,15 @@ _.str       = require 'underscore.string'
 
 
 if process.env.DEBUG
-  debug          =      -> console.info.apply console, arguments
+  debug          =        -> console.info.apply console, arguments
 else
-  debug          =      ->
+  debug          =        ->
 
-String::strip    =      -> @replace(/^\s+|\s+$/g, '')
-String::lstrip   =      -> @replace(/^\s+/g, '')
-String::isdigit  =      -> /^[0-9]+$/.test(@)
-String::repeat   =  (n) -> (@ for i in [0...n]).join('')
+String::strip    =        -> @replace(/^\s+|\s+$/g, '')
+String::lstrip   =        -> @replace(/^\s+/g, '')
+String::isdigit  =        -> /^[0-9]+$/.test(@)
 
+repeat_string    = (s, n) -> (s for i in [0...n]).join('')
 
 WHITESPACE  = ["\n", "\r", "\t", " "]
 
@@ -39,10 +41,23 @@ LINE_STARTERS = '''
               while break function
               '''.strip().split(/\s+/)
 
-$ =
-  pos: undefined
+DEFAULT_OPTIONS =
+  brace_style:                'collapse'
+  indent_char:                ' '
+  indent_size:                4
+  indent_with_tabs:           false
+  jslint_happy:               false
+  keep_array_indentation:     false
+  keep_function_indentation:  false
+  max_preserve_newlines:      10
+  destroy_newlines:           false
+  unescape_strings:           false
+
+# Parser position (global)
+$parser_pos = undefined
 
 class BeautifierFlags
+
   constructor: (@mode) ->
     @previous_mode = 'BLOCK'
     @var_line = false
@@ -58,25 +73,22 @@ class BeautifierFlags
     @ternary_depth = 0
 
 
-beautify = (string, opts) ->
-  return new Beautifier(opts).beautify(string, opts)
-
-beautify_file = (file_name, opts) ->
-  if file_name == '-'
-    file_name = '/dev/stdin'
-
+beautify_file = (file_name, opts = DEFAULT_OPTIONS) ->
+  file_name = '/dev/stdin'  if file_name == '-'
   try
     str = fs.readFileSync(file_name).toString()
   catch e
-    return "The file could not be opened: #{e}"
+    throw new Error "The file could not be opened: #{e.message}"
 
-  return beautify(str, opts)
+  new Beautifier(opts).beautify(str, opts)
 
 
 class Beautifier
-  constructor : (opts) ->
-    @opts = opts
+
+  constructor : (@opts = DEFAULT_OPTIONS) ->
+    debug @opts
     @blank_state()
+
 
   blank_state: ->
     # internal flags
@@ -89,21 +101,18 @@ class Beautifier
     if @opts.indent_with_tabs
       @indent_string = "\t"
     else
-      @indent_string = @opts.indent_char.repeat(@opts.indent_size)
+      @indent_string = repeat_string(@opts.indent_char, @opts.indent_size)
 
     @preindent_string = ''
-    @last_word = ''        # last TK_WORD seen
-    @last_type = 'TK_START_EXPR' # last token type
-    @last_text = ''        # last token text
-    @last_last_text = ''     # pre-last token text
+    @last_word = ''               # last TK_WORD seen
+    @last_type = 'TK_START_EXPR'  # last token type
+    @last_text = ''               # last token text
+    @last_last_text = ''          # pre-last token text
 
     @input = undefined
-    @output = []         # formatted javascript gets built here
-
-
+    @output = []                  # formatted javascript gets built here
     @set_mode('BLOCK')
-
-    $.pos = 0
+    $parser_pos = 0
 
 
   beautify: (s, opts = undefined) ->
@@ -120,9 +129,9 @@ class Beautifier
       @preindent_string += s[0]
       s = s[1..]
 
-    @input = s #@unpack(s, opts.eval_code)
+    @input = s
 
-    $.pos = 0
+    $parser_pos = 0
     loop
       [token_text, token_type] = @get_next_token()
       if token_type == 'TK_EOF'
@@ -151,20 +160,21 @@ class Beautifier
       @last_type = token_type
       @last_text = token_text
 
-    sweet_code = @preindent_string + @output.join('').replace(/[\n ]+$/g, '')
-    return sweet_code
+    @preindent_string + @output.join('').replace(/[\n ]+$/g, '')
+
 
   trim_output: (eat_newlines = false) =>
-    check = (output) =>
-      @output.length and (@output[-1] == ' ' or
-                        @output[-1] == @indent_string or
-                        @output[-1] == @preindent_string or
-                        (eat_newlines and @output[-1] in ['\n', '\r']))
-    while check @output
-      @output.pop()
+    @output.pop() while do (output = @output) =>
+      last = _.last(output)
+      output.length and last == ' ' or
+      last == @indent_string or
+      last == @preindent_string or
+      (eat_newlines and last in ['\n', '\r'])
+
 
   is_special_word: (s) =>
     return s in ['case', 'return', 'do', 'if', 'throw', 'else']
+
 
   is_array: (mode) =>
     return mode in ['[EXPRESSION]', '[INDENTED-EXPRESSION]']
@@ -181,6 +191,7 @@ class Beautifier
     @append_newline()
     @opts.keep_array_indentation = old_array_indentation
 
+
   append_newline: (ignore_repeated = true) =>
     @flags.eat_next_space = false
 
@@ -193,8 +204,7 @@ class Beautifier
     if @output.length == 0
       # no newline on start of file
       return
-
-    if @output[-1] != '\n' or not ignore_repeated
+    if _.last(@output) != '\n' or not ignore_repeated
       @just_added_newline = true
       @output.push('\n')
 
@@ -217,7 +227,9 @@ class Beautifier
       # make sure only single space gets drawn
       if @flags.eat_next_space
         @flags.eat_next_space = false
-      else if @output.length and @output[-1] not in [' ', '\n', @indent_string]
+      else if @output.length and
+          _.last(@output) not in [' ', '\n', @indent_string]
+
         @output.push(' ')
     else
       @just_added_newline = false
@@ -230,7 +242,7 @@ class Beautifier
 
 
   remove_indent: =>
-    if @output.length and @output[-1] in [@indent_string, @preindent_string]
+    if @output.length and _.last(@output) in [@indent_string, @preindent_string]
       @output.pop()
 
 
@@ -263,12 +275,12 @@ class Beautifier
   get_next_token: =>
     @n_newlines = 0
 
-    if $.pos >= @input.length
+    if $parser_pos >= @input.length
       return ['', 'TK_EOF']
 
     @wanted_newline = false
-    c = @input[$.pos]
-    $.pos += 1
+    c = @input[$parser_pos]
+    $parser_pos += 1
 
     keep_whitespace = @opts.keep_array_indentation and @is_array(@flags.mode)
 
@@ -302,11 +314,11 @@ class Beautifier
         else
           whitespace_count += 1
 
-        if $.pos >= @input.length
+        if $parser_pos >= @input.length
           return ['', 'TK_EOF']
 
-        c = @input[$.pos]
-        $.pos += 1
+        c = @input[$parser_pos]
+        $parser_pos += 1
 
       if @flags.indentation_baseline == -1
 
@@ -326,13 +338,13 @@ class Beautifier
                           @opts.max_preserve_newlines > @n_newlines)
           @n_newlines += 1
 
-        if $.pos >= @input.length
+        if $parser_pos >= @input.length
           return ['', 'TK_EOF']
 
-        c = @input[$.pos]
-        $.pos += 1
+        c = @input[$parser_pos]
+        $parser_pos += 1
 
-      if @opts.preserve_newlines and @n_newlines > 1
+      if (not @opts.destroy_newlines) and @n_newlines > 1
         for i in [0...@n_newlines]
           @append_newline(i == 0)
           @just_added_newline = true
@@ -340,19 +352,19 @@ class Beautifier
       @wanted_newline = @n_newlines > 0
 
     if c in WORDCHAR
-      if $.pos < @input.length
-        while @input[$.pos] in WORDCHAR
-          c = c + @input[$.pos]
-          $.pos += 1
-          if $.pos == @input.length
+      if $parser_pos < @input.length
+        while @input[$parser_pos] in WORDCHAR
+          c = c + @input[$parser_pos]
+          $parser_pos += 1
+          if $parser_pos == @input.length
             break
 
       # small and surprisingly unugly hack for 1E-10 representation
-      if $.pos != @input.length and @input[$.pos] in '+-' \
+      if $parser_pos != @input.length and @input[$parser_pos] in '+-' \
          and /^[0-9]+[Ee]$/.test(c)
 
-        sign = @input[$.pos]
-        $.pos += 1
+        sign = @input[$parser_pos]
+        $parser_pos += 1
         t = @get_next_token()
         c += sign + t[0]
         return [c, 'TK_WORD']
@@ -364,7 +376,7 @@ class Beautifier
          @last_type != 'TK_OPERATOR' and\
          @last_type != 'TK_EQUALS' and\
          not @flags.if_line and \
-         (@opts.preserve_newlines or @last_text != 'var')
+         ((not @opts.destroy_newlines) or @last_text != 'var')
         @append_newline()
 
       return [c, 'TK_WORD']
@@ -388,29 +400,29 @@ class Beautifier
       comment = ''
       inline_comment = true
       comment_mode = 'TK_INLINE_COMMENT'
-      if @input[$.pos] == '*' # peek /* .. */ comment
-        $.pos += 1
-        if $.pos < @input.length
-          while $.pos < @input.length and
-                not (@input[$.pos] == '*' and
-                     $.pos + 1 < @input.length and
-                     @input[$.pos + 1] == '/')
+      if @input[$parser_pos] == '*' # peek /* .. */ comment
+        $parser_pos += 1
+        if $parser_pos < @input.length
+          while $parser_pos < @input.length and
+                not (@input[$parser_pos] == '*' and
+                     $parser_pos + 1 < @input.length and
+                     @input[$parser_pos + 1] == '/')
 
-            c = @input[$.pos]
+            c = @input[$parser_pos]
             comment += c
             if c in '\r\n'
               comment_mode = 'TK_BLOCK_COMMENT'
-            $.pos += 1
-            if $.pos >= @input.length
+            $parser_pos += 1
+            if $parser_pos >= @input.length
               break
-        $.pos += 2
+        $parser_pos += 2
         return ['/*' + comment + '*/', comment_mode]
-      if @input[$.pos] == '/' # peek // comment
+      if @input[$parser_pos] == '/' # peek // comment
         comment = c
-        until @input[$.pos] in '\r\n'
-          comment += @input[$.pos]
-          $.pos += 1
-          if $.pos >= @input.length
+        until @input[$parser_pos] in '\r\n'
+          comment += @input[$parser_pos]
+          $parser_pos += 1
+          if $parser_pos >= @input.length
             break
         if @wanted_newline
           @append_newline()
@@ -434,29 +446,29 @@ class Beautifier
       resulting_string = c
       in_char_class = false
 
-      if $.pos < @input.length
+      if $parser_pos < @input.length
         if sep == '/'
           # handle regexp
           in_char_class = false
-          while esc or in_char_class or @input[$.pos] != sep
-            resulting_string += @input[$.pos]
+          while esc or in_char_class or @input[$parser_pos] != sep
+            resulting_string += @input[$parser_pos]
             if not esc
-              esc = @input[$.pos] == '\\'
-              if @input[$.pos] == '['
+              esc = @input[$parser_pos] == '\\'
+              if @input[$parser_pos] == '['
                 in_char_class = true
-              else if @input[$.pos] == ']'
+              else if @input[$parser_pos] == ']'
                 in_char_class = false
             else
               esc = false
-            $.pos += 1
-            if $.pos >= @input.length
+            $parser_pos += 1
+            if $parser_pos >= @input.length
               # incomplete regex when end-of-file reached
               # bail out with what has received so far
               return [resulting_string, 'TK_STRING']
         else
           # handle string
-          while esc or @input[$.pos] != sep
-            resulting_string += @input[$.pos]
+          while esc or @input[$parser_pos] != sep
+            resulting_string += @input[$parser_pos]
             if esc1 and esc1 >= esc2
               try
                 esc1 = parseInt(resulting_string[-esc2..], 16)
@@ -472,41 +484,44 @@ class Beautifier
             if esc1
               esc1 += 1
             else if not esc
-              esc = @input[$.pos] == '\\'
+              esc = @input[$parser_pos] == '\\'
             else
               esc = false
               if @opts.unescape_strings
-                if @input[$.pos] == 'x'
+                if @input[$parser_pos] == 'x'
                   esc1 += 1
                   esc2 = 2
-                else if @input[$.pos] == 'u'
+                else if @input[$parser_pos] == 'u'
                   esc1 += 1
                   esc2 = 4
-            $.pos += 1
-            if $.pos >= @input.length
+            $parser_pos += 1
+            if $parser_pos >= @input.length
               # incomplete string when end-of-file reached
               # bail out with what has received so far
               return [resulting_string, 'TK_STRING']
 
 
-      $.pos += 1
+      $parser_pos += 1
       resulting_string += sep
       if sep == '/'
         # regexps may have modifiers /regexp/MOD, so fetch those too
-        while $.pos < @input.length and @input[$.pos] in WORDCHAR
-          resulting_string += @input[$.pos]
-          $.pos += 1
+        while $parser_pos < @input.length and @input[$parser_pos] in WORDCHAR
+          resulting_string += @input[$parser_pos]
+          $parser_pos += 1
       return [resulting_string, 'TK_STRING']
 
     if c == '#'
 
       # she-bang
-      if @output.length == 0 and @input.length > 1 and @input[$.pos] == '!'
+      if @output.length == 0 and
+          @input.length > 1 and
+          @input[$parser_pos] == '!'
+
         resulting_string = c
-        while $.pos < @input.length and c != '\n'
-          c = @input[$.pos]
+        while $parser_pos < @input.length and c != '\n'
+          c = @input[$parser_pos]
           resulting_string += c
-          $.pos += 1
+          $parser_pos += 1
         @output.push(resulting_string.strip() + "\n")
         @append_newline()
         return @get_next_token()
@@ -517,47 +532,47 @@ class Beautifier
       # http://mxr.mozilla.org/mozilla-central/source/js/src/jsscan.cpp
       #   around line 1935
       sharp = '#'
-      if $.pos < @input.length and @input[$.pos] in DIGITS
+      if $parser_pos < @input.length and @input[$parser_pos] in DIGITS
         loop
-          c = @input[$.pos]
+          c = @input[$parser_pos]
           sharp += c
-          $.pos += 1
-          if $.pos >= @input.length  or c == '#' or c == '='
+          $parser_pos += 1
+          if $parser_pos >= @input.length  or c == '#' or c == '='
             break
-      if c == '#' or $.pos >= @input.length
+      if c == '#' or $parser_pos >= @input.length
         # pass
-      else if @input[$.pos] == '[' and @input[$.pos + 1] == ']'
+      else if @input[$parser_pos] == '[' and @input[$parser_pos + 1] == ']'
         sharp += '[]'
-        $.pos += 2
-      else if @input[$.pos] == '{' and @input[$.pos + 1] == '}'
+        $parser_pos += 2
+      else if @input[$parser_pos] == '{' and @input[$parser_pos + 1] == '}'
         sharp += '{}'
-        $.pos += 2
+        $parser_pos += 2
       return [sharp, 'TK_WORD']
 
-    if c == '<' and @input[$.pos - 1 : $.pos + 3] == '<!--'
-      $.pos += 3
+    if c == '<' and @input[$parser_pos - 1 : $parser_pos + 3] == '<!--'
+      $parser_pos += 3
       c = '<!--'
-      while $.pos < @input.length and @input[$.pos] != '\n'
-        c += @input[$.pos]
-        $.pos += 1
+      while $parser_pos < @input.length and @input[$parser_pos] != '\n'
+        c += @input[$parser_pos]
+        $parser_pos += 1
       @flags.in_html_comment = true
       return [c, 'TK_COMMENT']
 
     if c == '-' and
         @flags.in_html_comment and
-        @input[$.pos - 1  : $.pos + 2] == '-->'
+        @input[$parser_pos - 1  : $parser_pos + 2] == '-->'
 
       @flags.in_html_comment = false
-      $.pos += 2
+      $parser_pos += 2
       if @wanted_newline
         @append_newline()
       return ['-->', 'TK_COMMENT']
 
     if c in PUNCT
-      while $.pos < @input.length and c + @input[$.pos] in PUNCT
-        c += @input[$.pos]
-        $.pos += 1
-        if $.pos >= @input.length
+      while $parser_pos < @input.length and c + @input[$parser_pos] in PUNCT
+        c += @input[$parser_pos]
+        $parser_pos += 1
+        if $parser_pos >= @input.length
           break
       if c == '='
         return [c, 'TK_EQUALS']
@@ -567,7 +582,6 @@ class Beautifier
       return [c, 'TK_OPERATOR']
 
     return [c, 'TK_UNKNOWN']
-
 
 
   handle_start_expr: (token_text) =>
@@ -725,7 +739,7 @@ class Beautifier
         have_newlines = @n_newlines
         if not @just_added_newline
           have_newlines = 0
-        if not @opts.preserve_newlines
+        if not (not @opts.destroy_newlines)
           have_newlines = 1
         for i in [0...2 - have_newlines]
           @append_newline(false)
@@ -895,8 +909,6 @@ class Beautifier
 
 
   handle_comma: (token_text) =>
-
-
     if @last_type == 'TK_COMMENT'
       @append_newline()
 
@@ -1010,7 +1022,6 @@ class Beautifier
       @append(' ')
 
 
-
   handle_block_comment: (token_text) =>
     lines = token_text.replace('\x0d', '').split('\x0a')
 
@@ -1067,63 +1078,47 @@ class Beautifier
     @append(token_text)
 
 
-options =
-  file:
-    position: 0
-    default: '-'
-    help: "The file to beautify. STDIN by default."
-  indent_size:
-    default: 4
-  indent_char:
-    default: ' '
-  indent_with_tabs:
-    flag: true
-    default: false
-  preserve_newlines:
-    flag: true
-    default: true
-  max_preserve_newlines:
-    default: 10
-    metavar: 'NUM_LINES'
-  jslint_happy:
-    flag: true
-    default: false
-  brace_style:
-    default: 'collapse'
-  keep_array_indentation:
-    flag: true
-    default: false
-  keep_function_indentation:
-    flag: true
-    default: false
-  eval_code:
-    flag: true
-    default: false
-  unescape_strings:
-    flag: true
-    default: false
-
-_.map options, (opt, key) ->
-  {help, flag} = opt
-  help = if help then [help] else []
-  if not flag
-    if not opt.metavar
-      opt.metavar = key.toUpperCase()
-    if 'default' of opt
-      def = opt.default
-      def = JSON.stringify(def) if /^\s+$/.test(def)
-      help.push "(#{def})"
-  opt.help = help.join(' ')
-
-
 # MAIN:
+
 unless module.parent
   nomnom = require 'nomnom'
-  args = nomnom
-        .options(options)
-        .help('Increase the millihelens of JavaScript code')
-        .parse()
 
-  debug("BEAUTIFY: #{args.file}")
-  debug(args)
-  console.log(beautify_file(args.file, args))
+  _.map DEFAULT_OPTIONS, (default_value, key) ->
+    opt =
+      default: default_value
+      flag: !! default_value is default_value
+    if not opt.flag or opt.default is true
+      help = []
+      if not opt.metavar and not opt.flag
+        opt.metavar = key.toUpperCase().split('_')[-1..]
+      if 'default' of opt
+        def = opt.default
+        def = JSON.stringify(def) if /^\s+$/.test(def)
+        help.push "(#{def})"
+      opt.help = help.join(' ')
+    nomnom.option(key, opt)
+
+  nomnom.option 'file',
+    position: 0
+    default: '-'
+    help: "The file to beautify (will read from STDIN if omitted)"
+
+  nomnom.option 'outfile'
+    abbr: 'o'
+    metavar: 'FILE'
+    help: "specify a file to write output to (default: STDOUT)"
+
+  nomnom.help('Increase the millihelens of JavaScript code.')
+
+  args = nomnom.parse()
+
+  output = beautify_file(args.file, args)
+
+  if (args.outfile)
+    try
+      fs.writeFileSync args.outfile, output
+    catch e
+      throw new Error """Could not write output to file (#{args.outfile}):
+                      #{e.message}"""
+  else
+    console.log output

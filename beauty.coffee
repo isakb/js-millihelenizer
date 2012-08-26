@@ -56,6 +56,21 @@ DEFAULT_OPTIONS =
 # Parser position (global)
 $parser_pos = undefined
 
+
+module.exports = self =
+  beautify: (str, opts = DEFAULT_OPTIONS) ->
+    new Beautifier(opts).beautify(str, opts)
+
+  beautify_file: (file_name, opts = DEFAULT_OPTIONS) ->
+    file_name = '/dev/stdin'  if file_name == '-'
+    try
+      str = fs.readFileSync(file_name).toString()
+    catch e
+      throw new Error "The file could not be opened: #{e.message}"
+
+    self.beautify str, opts
+
+
 class BeautifierFlags
 
   constructor: (@mode) ->
@@ -71,16 +86,6 @@ class BeautifierFlags
     @indentation_baseline = -1
     @indentation_level = 0
     @ternary_depth = 0
-
-
-beautify_file = (file_name, opts = DEFAULT_OPTIONS) ->
-  file_name = '/dev/stdin'  if file_name == '-'
-  try
-    str = fs.readFileSync(file_name).toString()
-  catch e
-    throw new Error "The file could not be opened: #{e.message}"
-
-  new Beautifier(opts).beautify(str, opts)
 
 
 class Beautifier
@@ -1080,7 +1085,7 @@ class Beautifier
 
 # MAIN:
 
-unless module.parent
+if require.main == module
   nomnom = require 'nomnom'
 
   _.map DEFAULT_OPTIONS, (default_value, key) ->
@@ -1112,7 +1117,7 @@ unless module.parent
 
   args = nomnom.parse()
 
-  output = beautify_file(args.file, args)
+  output = self.beautify_file(args.file, args)
 
   if (args.outfile)
     try

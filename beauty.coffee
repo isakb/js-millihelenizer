@@ -14,11 +14,11 @@ _.str       = require 'underscore.string'
 
 len         = (x)    -> x.length
 
-range       = (a, b) -> if b is undefined then [0..a] else [a..b]
+range       = (a, b) -> if b is undefined then [0...a] else [a...b]
 
 print       = (x...) -> console.log.apply console, x
 
-int         = (n)    -> +(n|0)
+int         = (n, m) -> parseInt(n, m)
 
 chr         = (n)    -> String.fromCharCode(n)
 
@@ -28,7 +28,9 @@ String::strip =      -> @replace(/^\s+|\s+$/g, '')
 
 String::lstrip =     -> @replace(/^\s+/g, '')
 
-String::isdigit =    -> /[0-9]/.test(@)
+String::isdigit =    -> /^[0-9]+$/.test(@)
+
+String::repeat = (n) -> (@ for i in [0...n]).join('')
 
 
 # Contants
@@ -84,7 +86,7 @@ beautify_file = (file_name, opts) ->
   catch e
     return "The file could not be opened: #{e}"
 
-  return beautify(str, options)
+  return beautify(str, opts)
 
 
 class Beautifier
@@ -103,7 +105,7 @@ class Beautifier
     if @opts.indent_with_tabs
       @indent_string = "\t"
     else
-      @indent_string = @opts.indent_char * @opts.indent_size
+      @indent_string = @opts.indent_char.repeat(@opts.indent_size)
 
     @preindent_string = ''
     @last_word = ''        # last TK_WORD seen
@@ -232,7 +234,7 @@ class Beautifier
       # make sure only single space gets drawn
       if @flags.eat_next_space
         @flags.eat_next_space = false
-      else if len(@output) and not @output[-1] in [' ', '\n', @indent_string]
+      else if len(@output) and @output[-1] not in [' ', '\n', @indent_string]
         @output.push(' ')
     else
       @just_added_newline = false
@@ -406,10 +408,11 @@ class Beautifier
       if @input[$.pos] == '*' # peek /* .. */ comment
         $.pos += 1
         if $.pos < len(@input)
-          while not (@input[$.pos] == '*' and \
-                 $.pos + 1 < len(@input) and \
-                 @input[$.pos + 1] == '/')\
-              and $.pos < len(@input)
+          while $.pos < len(@input) and
+                not (@input[$.pos] == '*' and
+                     $.pos + 1 < len(@input) and
+                     @input[$.pos + 1] == '/')
+
             c = @input[$.pos]
             comment += c
             if c in '\r\n'
@@ -421,7 +424,7 @@ class Beautifier
         return ['/*' + comment + '*/', comment_mode]
       if @input[$.pos] == '/' # peek // comment
         comment = c
-        while not @input[$.pos] in '\r\n'
+        until @input[$.pos] in '\r\n'
           comment += @input[$.pos]
           $.pos += 1
           if $.pos >= len(@input)
@@ -473,12 +476,12 @@ class Beautifier
             resulting_string += @input[$.pos]
             if esc1 and esc1 >= esc2
               try
-                esc1 = int(resulting_string[-esc2], 16)
+                esc1 = parseInt(resulting_string[-esc2..], 16)
               catch e
                 esc1 = false
               if esc1 and esc1 >= 0x20 and esc1 <= 0x7e
                 esc1 = chr(esc1)
-                resulting_string = resulting_string[..-2 - esc2]
+                resulting_string = resulting_string[.. -2 - esc2]
                 if esc1 == sep or esc1 == '\\'
                   resulting_string += '\\'
                 resulting_string += esc1
@@ -548,7 +551,7 @@ class Beautifier
         $.pos += 2
       return [sharp, 'TK_WORD']
 
-    if c == '<' and @input[$.pos - 1 ... $.pos + 3] == '<!--'
+    if c == '<' and @input[$.pos - 1 : $.pos + 3] == '<!--'
       $.pos += 3
       c = '<!--'
       while $.pos < len(@input) and @input[$.pos] != '\n'
@@ -559,7 +562,7 @@ class Beautifier
 
     if c == '-' and
         @flags.in_html_comment and
-        @input[$.pos - 1  ... $.pos + 2] == '-->'
+        @input[$.pos - 1  : $.pos + 2] == '-->'
 
       @flags.in_html_comment = false
       $.pos += 2
@@ -633,7 +636,7 @@ class Beautifier
       # do nothing on (( and )( and ][ and ]( and .(
       if @wanted_newline
         @append_newline()
-    else if not @last_type in ['TK_WORD', 'TK_OPERATOR']
+    else if @last_type not in ['TK_WORD', 'TK_OPERATOR']
       @append(' ')
     else if @last_word == 'function' or @last_word == 'typeof'
       # function() vs function (), typeof() vs typeof ()
@@ -682,7 +685,7 @@ class Beautifier
       @append(token_text)
       @indent()
     else
-      if not @last_type in ['TK_OPERATOR', 'TK_START_EXPR']
+      if @last_type not in ['TK_OPERATOR', 'TK_START_EXPR']
         if @last_type == 'TK_START_BLOCK'
           @append_newline()
         else
@@ -781,7 +784,7 @@ class Beautifier
     prefix = 'NONE'
 
     if @last_type == 'TK_END_BLOCK'
-      if not token_text in ['else', 'catch', 'finally']
+      if token_text not in ['else', 'catch', 'finally']
         prefix = 'NEWLINE'
       else
         if @opts.brace_style in ['expand', 'end-expand']
@@ -1026,14 +1029,12 @@ class Beautifier
 
 
   handle_block_comment: (token_text) =>
-
     lines = token_text.replace('\x0d', '').split('\x0a')
+
     # all lines start with an asterisk? that's a proper box comment
-    asterisk_lines =
+    non_asterisk_lines =
       l for l in lines[1..] when ( l.strip() == '' or (l.lstrip())[0] != '*')
-
-    if not _.any(asterisk_lines)
-
+    if not _.any(non_asterisk_lines)
       @append_newline()
       @append(lines[0])
       for line in lines[1..]
@@ -1100,6 +1101,7 @@ options =
     default: true
   max_preserve_newlines:
     default: 10
+    metavar: 'NUM_LINES'
   jslint_happy:
     flag: true
     default: false
@@ -1117,6 +1119,18 @@ options =
   unescape_strings:
     flag: true
     default: false
+
+_.map options, (opt, key) ->
+  {help, flag} = opt
+  help = if help then [help] else []
+  if not flag
+    if not opt.metavar
+      opt.metavar = key.toUpperCase()
+    if 'default' of opt
+      def = opt.default
+      def = JSON.stringify(def) if /^\s+$/.test(def)
+      help.push "(#{def})"
+  opt.help = help.join(' ')
 
 main = () ->
   nomnom = require 'nomnom'

@@ -11,7 +11,13 @@
     "underscore": "~1.3.3",
     "nomnom": "~1.5.2"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "mocha": "~1.4.0",
+    "coffee-script": "~1.3.3"
+  },
+  "scripts": {
+    "test": "mocha --compilers coffee:coffee-script"
+  },
   "optionalDependencies": {},
   "engines": {
     "node": "*"

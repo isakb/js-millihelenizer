@@ -58,6 +58,9 @@ $parser_pos = undefined
 
 
 module.exports = self =
+
+  default_options: -> DEFAULT_OPTIONS
+
   beautify: (str, opts = DEFAULT_OPTIONS) ->
     new Beautifier(opts).beautify(str, opts)
 
@@ -92,6 +95,10 @@ class Beautifier
 
   constructor : (@opts = DEFAULT_OPTIONS) ->
     debug @opts
+    if @opts isnt DEFAULT_OPTIONS
+      for own k, v of @opts
+        if k not in ['_', 'file'] and k not of DEFAULT_OPTIONS
+          throw new Error "Unknown option #{k}"
     @blank_state()
 
 

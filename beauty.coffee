@@ -9,7 +9,6 @@
 
 fs          = require 'fs'
 _           = require 'underscore'
-_.str       = require 'underscore.string'
 
 
 if process.env.DEBUG

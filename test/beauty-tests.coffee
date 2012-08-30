@@ -4,6 +4,7 @@ assert = require 'assert'
 beauty = require '../beauty'
 
 $options = {}
+$count = 0
 
 setup = (options = {}) ->
   before ->
@@ -16,11 +17,12 @@ bt = (input, expectation = input) ->
 
   if $options.indent_size == 4 and input
     wrapped_input = '{\n' + input + '\nfoo=bar;}'
-    wrapped_expect = '{\n    ' + expectation + '\n    foo = bar;\n}'
-    context "wrapped", ->
-      beautifies_to(wrapped_input, wrapped_expect)
+    wrapped_expect = '{\n' + expectation.replace(/^(.+)$/mg, '    $1') + '\n    foo = bar;\n}'
 
-$count = 0
+    context "wrapped", ->
+      beautifies_to_(wrapped_input, wrapped_expect)
+
+
 beautifies_to = (input, expectation = input) ->
   specify "assertion ##{++$count}", ->
     beautified = beauty.beautify(input, $options)
@@ -303,9 +305,8 @@ describe "millihelenizer", ->
 
 
   describe "jslint_happy true", ->
-    before ->
-      set_options
-        jslint_happy: true
+    setup
+      jslint_happy: true
 
     bt 'x();\n\nfunction(){}', 'x();\n\nfunction () {}'
     bt 'function () {\n    var a, b, c, d, e = [],\n        f;\n}'
@@ -315,9 +316,8 @@ describe "millihelenizer", ->
 
 
   describe "jslint_happy false", ->
-    before ->
-      set_options
-        jslint_happy: true
+    setup
+      jslint_happy: false
 
     beautifies_to("// comment 2\n(function()", "// comment 2\n(function()"); # typical greasemonkey start
     bt "var a2, b2, c2, d2 = 0, c = function() {}, d = '';", "var a2, b2, c2, d2 = 0,\n    c = function() {}, d = '';"

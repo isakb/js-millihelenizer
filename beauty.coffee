@@ -16,13 +16,12 @@ if process.env.DEBUG
 else
   debug          =        ->
 
-String::strip    =        -> @replace(/^\s+|\s+$/g, '')
-String::lstrip   =        -> @replace(/^\s+/g, '')
-String::isdigit  =        -> /^[0-9]+$/.test(@)
+String::strip    =        -> @replace(/^\s+|\s+$/mg, '')
+String::isdigit  =        -> /^\d+$/.test @
 
 repeat_string    = (s, n) -> (s for i in [0...n]).join('')
 
-WHITESPACE  = ["\n", "\r", "\t", " "]
+WHITESPACE  = "\n\r\t "
 
 WORDCHAR    = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$'
 
@@ -320,9 +319,7 @@ class Beautifier
           whitespace_count = 0
         else if c == '\t'
           whitespace_count += 4
-        else if c == '\r'
-          # pass
-        else
+        else if c != '\r'
           whitespace_count += 1
 
         if $parser_pos >= @input.length
@@ -336,7 +333,7 @@ class Beautifier
         @flags.indentation_baseline = whitespace_count
 
       if @just_added_newline
-        for i in [0...@flags.indentation_level + 1]
+        for i in [0..@flags.indentation_level]
           @output.push(@indent_string)
 
         if @flags.indentation_baseline != -1
@@ -1034,15 +1031,16 @@ class Beautifier
 
 
   handle_block_comment: (token_text) =>
-    lines = token_text.replace('\x0d', '').split('\x0a')
+    lines = token_text.split(/\r*\n/)
+    lines_below = lines[1..]
+
+    starts_with_asterisk = (line) -> /^\s*\*/.test line
 
     # all lines start with an asterisk? that's a proper box comment
-    non_asterisk_lines =
-      l for l in lines[1..] when ( l.strip() == '' or (l.lstrip())[0] != '*')
-    if not _.any(non_asterisk_lines)
+    if _.all lines_below, starts_with_asterisk
       @append_newline()
       @append(lines[0])
-      for line in lines[1..]
+      for line in lines_below
         @append_newline()
         @append(' ' + line.strip())
     else

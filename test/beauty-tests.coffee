@@ -3,9 +3,12 @@ _      = require 'underscore'
 assert = require 'assert'
 beauty = require '../beauty'
 
+$options = {}
 
-set_options = (options = {}) ->
-  $options = _.extend({}, beauty.default_options(), options)
+setup = (options = {}) ->
+  before ->
+    $options = _.extend({}, beauty.default_options(), options)
+
 
 bt = (input, expectation = input) ->
   context "normal", ->
@@ -28,25 +31,11 @@ beautifies_to = (input, expectation = input) ->
       throw e
 
 
-$options = set_options()
-
-
 describe "millihelenizer", ->
-  before ->
-    set_options
-      indent_size: 4
-      indent_char: ' '
-      destroy_newlines: false
-      jslint_happy: false
-      keep_array_indentation: false
-      brace_style: 'collapse'
-      unescape_strings: false
 
-  # FIXME: Investigate unescaping issues
-  describe.skip "unescape_strings false", ->
-    before ->
-      set_options
-        unescape_strings: false
+  describe "unescape_strings false", ->
+    setup
+      unescape_strings: false
 
     # Test cases contributed by <chrisjshull on GitHub.com>
     bt '"\\\\s"' # == "\\s" in the js source
@@ -64,11 +53,10 @@ describe "millihelenizer", ->
     bt '"\\x22\\x27",\'\\x22\\x27\',"\\x5c",\'\\x5c\',"\\xff and \\xzz","unicode \\u0000 \\u0022 \\u0027 \\u005c \\uffff \\uzzzz"',
        '"\\x22\\x27", \'\\x22\\x27\', "\\x5c", \'\\x5c\', "\\xff and \\xzz", "unicode \\u0000 \\u0022 \\u0027 \\u005c \\uffff \\uzzzz"'
 
-  # FIXME: Investigate unescaping issues
-  describe.skip "unescape_strings", ->
-    before ->
-      set_options
-        unescape_strings: true
+
+  describe "unescape_strings true", ->
+    setup
+      unescape_strings: true
 
     bt '"\\x41\\x42\\x43\\x01"', '"ABC\\x01"'
     bt '"\\u2022"', '"\\u2022"'
@@ -351,10 +339,9 @@ describe "millihelenizer", ->
 
 
   describe "indent_size 1, indent_char ' '", ->
-    before ->
-      set_options
-        indent_size: 1
-        indent_char: ' '
+    setup
+      indent_size: 1
+      indent_char: ' '
 
     bt '{ one_char() }', "{\n one_char()\n}"
 
@@ -362,28 +349,25 @@ describe "millihelenizer", ->
 
 
   describe "indent size 4, indent_char ' '", ->
-    before ->
-      set_options
-        indent_size: 4
-        indent_char: ' '
+    setup
+      indent_size: 4
+      indent_char: ' '
 
     bt '{ one_char() }', "{\n    one_char()\n}"
 
 
   describe "indent size 1, indent_char TAB", ->
-    before ->
-      set_options
-        indent_size: 1
-        indent_char: '\t'
+    setup
+      indent_size: 1
+      indent_char: '\t'
 
     bt '{ one_char() }', "{\n\tone_char()\n}"
     bt 'x = a ? b : c; x;', 'x = a ? b : c;\nx;'
 
 
   describe "destroy_newlines true", ->
-    before ->
-      set_options
-        destroy_newlines: true
+    setup
+      destroy_newlines: true
 
     bt 'var\na=dont_preserve_newlines;', 'var a = dont_preserve_newlines;'
 
@@ -397,7 +381,6 @@ describe "millihelenizer", ->
        'function foo() {\n    return 1;\n}\n\nfunction foo() {\n    return 1;\n}'
 
 
-
   describe "more stuff again", ->
     bt 'var\na=do_preserve_newlines;', 'var\na = do_preserve_newlines;'
     bt '// a\n// b\n\n// c\n// d'
@@ -405,9 +388,8 @@ describe "millihelenizer", ->
 
 
   describe "keep_array_indentation true", ->
-    before ->
-      set_options
-        keep_array_indentation: true
+    setup
+      keep_array_indentation: true
 
     beautifies_to('var a = [\n// comment:\n{\n foo:bar\n}\n];', 'var a = [\n    // comment:\n{\n    foo: bar\n}\n];')
 
@@ -435,9 +417,8 @@ describe "millihelenizer", ->
 
 
   describe "brace_style 'expand'", ->
-    before ->
-      set_options
-        brace_style: 'expand'
+    setup
+      brace_style: 'expand'
 
     bt "throw {}"
     bt "throw {\n    foo;\n}"
@@ -460,9 +441,8 @@ describe "millihelenizer", ->
 
 
   describe "brace_style 'collapse'", ->
-    before ->
-      set_options
-        brace_style: 'collapse'
+    setup
+      brace_style: 'collapse'
 
     bt 'if (a)\n{\nb;\n}\nelse\n{\nc;\n}', 'if (a) {\n    b;\n} else {\n    c;\n}'
     beautifies_to('if (foo) {', 'if (foo) {')
@@ -477,9 +457,8 @@ describe "millihelenizer", ->
 
 
   describe "brace_style 'end-expand'", ->
-    before ->
-      set_options
-        brace_style: "end-expand"
+    setup
+      brace_style: "end-expand"
 
     bt 'if(1){2}else{3}', "if (1) {\n    2\n}\nelse {\n    3\n}"
     bt 'try{a();}catch(b){c();}finally{d();}', "try {\n    a();\n}\ncatch (b) {\n    c();\n}\nfinally {\n    d();\n}"
@@ -499,9 +478,8 @@ describe "millihelenizer", ->
 
 
   describe "destroy_newlines false", ->
-    before ->
-      set_options
-        destroy_newlines: false
+    setup
+      destroy_newlines: false
 
     bt 'var a = 42; // foo\n\nvar b;'
     bt 'var a = 42; // foo\n\n\nvar b;'
@@ -551,28 +529,25 @@ describe "millihelenizer", ->
 
 
   describe "indent_with_tabs true", ->
-    before ->
-      set_options
-        indent_with_tabs: true
+    setup
+      indent_with_tabs: true
 
     beautifies_to '{tabs()}', "{\n\ttabs()\n}"
 
 
   describe "indent_with_tabs true, keep_function_indentation true", ->
-    before ->
-      set_options
-        indent_with_tabs: true
-        keep_function_indentation: true
+    setup
+      indent_with_tabs: true
+      keep_function_indentation: true
 
     beautifies_to 'var foo = function(){ bar() }();',
                   "var foo = function() {\n\tbar()\n}();"
 
 
   describe "indent_with_tabs true, keep_function_indentation false", ->
-    before ->
-      set_options
-        indent_with_tabs: true
-        keep_function_indentation: false
+    setup
+      indent_with_tabs: true
+      keep_function_indentation: false
 
     beautifies_to 'var foo = function(){ baz() }();',
                   "var foo = function() {\n\tbaz()\n}();"

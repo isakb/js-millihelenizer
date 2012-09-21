@@ -378,10 +378,10 @@ describe "millihelenizer", ->
     # make sure the blank line between function definitions stays
     # even when destroy_newlines = true
     bt 'function foo() {\n    return 1;\n}\n\nfunction foo() {\n    return 1;\n}'
-    bt 'function foo() {\n    return 1;\n}\nfunction foo( {\n    return 1;\n}',
+    bt 'function foo() {\n    return 1;\n}\nfunction foo() {\n    return 1;\n}',
        'function foo() {\n    return 1;\n}\n\nfunction foo() {\n    return 1;\n}'
 
-    bt 'function foo() {\n    return 1;\n}\n\n\nfunction foo( {\n    return 1;\n}',
+    bt 'function foo() {\n    return 1;\n}\n\n\nfunction foo() {\n    return 1;\n}',
        'function foo() {\n    return 1;\n}\n\nfunction foo() {\n    return 1;\n}'
 
 

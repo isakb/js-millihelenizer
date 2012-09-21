@@ -228,23 +228,25 @@ class Beautifier
       @output.push(@indent_string)
 
 
-  append: (s) =>
-    if s == ' '
-      # do not add just a single space after the // comment, ever
-      if @last_type == 'TK_COMMENT'
-        return @append_newline()
+  append_space: =>
+    # do not add just a single space after the // comment, ever
+    if @last_type == 'TK_COMMENT'
+      return @append_newline()
 
-      # make sure only single space gets drawn
-      if @flags.eat_next_space
-        @flags.eat_next_space = false
-      else if @output.length and
-          _.last(@output) not in [' ', '\n', @indent_string]
-
-        @output.push(' ')
-    else
-      @just_added_newline = false
+    # make sure only single space gets drawn
+    if @flags.eat_next_space
       @flags.eat_next_space = false
-      @output.push(s)
+    else if @output.length and
+        _.last(@output) not in [' ', '\n', @indent_string]
+
+      @output.push(' ')
+
+
+  append: (s) =>
+
+    @just_added_newline = false
+    @flags.eat_next_space = false
+    @output.push(s)
 
 
   indent: =>
@@ -595,7 +597,7 @@ class Beautifier
     if token_text == '['
       if @last_type == 'TK_WORD' or @last_text == ')'
         if @last_text in LINE_STARTERS
-          @append(' ')
+          @append_space()
         @set_mode('(EXPRESSION)')
         @append(token_text)
         return
@@ -641,13 +643,13 @@ class Beautifier
       if @wanted_newline
         @append_newline()
     else if @last_type not in ['TK_WORD', 'TK_OPERATOR']
-      @append(' ')
+      @append_space()
     else if @last_word == 'function' or @last_word == 'typeof'
       # function() vs function (), typeof() vs typeof ()
       if @opts.jslint_happy
-        @append(' ')
+        @append_space()
     else if @last_text in LINE_STARTERS or @last_text == 'catch'
-      @append(' ')
+      @append_space()
 
     @append(token_text)
 
@@ -682,7 +684,7 @@ class Beautifier
         if @last_text == '=' or
             (@is_special_word(@last_text) and @last_text != 'else')
 
-          @append(' ')
+          @append_space()
         else
           @append_newline(true)
 
@@ -693,12 +695,12 @@ class Beautifier
         if @last_type == 'TK_START_BLOCK'
           @append_newline()
         else
-          @append(' ')
+          @append_space()
       else
         # if TK_OPERATOR or TK_START_EXPR
         if @is_array(@flags.previous_mode) and @last_text == ','
           if @last_last_text == '}'
-            @append(' ')
+            @append_space()
           else
             @append_newline()
       @indent()
@@ -729,9 +731,9 @@ class Beautifier
 
   handle_word: (token_text) =>
     if @do_block_just_closed
-      @append(' ')
+      @append_space()
       @append(token_text)
-      @append(' ')
+      @append_space()
       @do_block_just_closed = false
       return
 
@@ -751,16 +753,16 @@ class Beautifier
           @append_newline(false)
 
       if @last_text in ['get', 'set', 'new'] or @last_type == 'TK_WORD'
-        @append(' ')
+        @append_space()
 
       if @last_type == 'TK_WORD'
         if @last_text in ['get', 'set', 'new', 'return']
-          @append(' ')
+          @append_space()
         else
           @append_newline()
       else if @last_type == 'TK_OPERATOR' or @last_text == '='
         # foo = function
-        @append(' ')
+        @append_space()
       else if @is_expression(@flags.mode)
         # pass
       else
@@ -794,7 +796,7 @@ class Beautifier
           prefix = 'NEWLINE'
         else
           prefix = 'SPACE'
-          @append(' ')
+          @append_space()
     else if @last_type == 'TK_SEMICOLON' and
         @flags.mode in ['BLOCK', 'DO_BLOCK']
 
@@ -815,7 +817,7 @@ class Beautifier
     else if @last_type == 'TK_START_BLOCK'
       prefix = 'NEWLINE'
     else if @last_type == 'TK_END_EXPR'
-      @append(' ')
+      @append_space()
       prefix = 'NEWLINE'
 
     if @flags.if_line and @last_type == 'TK_END_EXPR'
@@ -835,11 +837,11 @@ class Beautifier
         @append_newline()
       else
         @trim_output(true)
-        @append(' ')
+        @append_space()
     else if prefix == 'NEWLINE'
       if @is_special_word(@last_text)
         # no newline between return nnn
-        @append(' ')
+        @append_space()
       else if @last_type != 'TK_END_EXPR'
         if (@last_type != 'TK_START_EXPR' or token_text != 'var') and
             @last_text != ':'
@@ -847,7 +849,7 @@ class Beautifier
           # no need to force newline on VAR -
           # for (var x = 0...
           if token_text == 'if' and @last_word == 'else' and @last_text != '{'
-            @append(' ')
+            @append_space()
           else
             @flags.var_line = false
             @flags.var_line_reindented = false
@@ -862,7 +864,7 @@ class Beautifier
 
       @append_newline() # }, in lists get a newline
     else if prefix == 'SPACE'
-      @append(' ')
+      @append_space()
 
 
     @append(token_text)
@@ -894,13 +896,13 @@ class Beautifier
     if @last_type == 'TK_END_EXPR' and
         @flags.previous_mode in ['(COND-EXPRESSION)', '(FOR-EXPRESSION)']
 
-      @append(' ')
+      @append_space()
     if @last_type in ['TK_COMMENT', 'TK_STRING', 'TK_START_BLOCK',
                       'TK_END_BLOCK', 'TK_SEMICOLON']
 
       @append_newline()
     else if @last_type == 'TK_WORD'
-      @append(' ')
+      @append_space()
 
     @append(token_text)
 
@@ -910,9 +912,9 @@ class Beautifier
       # just got an '=' in a var-line, different line breaking rules will apply
       @flags.var_line_tainted = true
 
-    @append(' ')
+    @append_space()
     @append(token_text)
-    @append(' ')
+    @append_space()
 
 
   handle_comma: (token_text) =>
@@ -933,7 +935,7 @@ class Beautifier
         @flags.var_line_tainted = false
 
       @append(token_text)
-      @append(' ')
+      @append_space()
       return
 
     if @last_type == 'TK_END_BLOCK' and @flags.mode != '(EXPRESSION)'
@@ -941,7 +943,7 @@ class Beautifier
       if @flags.mode == 'OBJECT' and @last_text == '}'
         @append_newline()
       else
-        @append(' ')
+        @append_space()
     else
       if @flags.mode == 'OBJECT'
         @append(token_text)
@@ -949,7 +951,7 @@ class Beautifier
       else
         # EXPR or DO_BLOCK
         @append(token_text)
-        @append(' ')
+        @append_space()
 
 
   handle_operator: (token_text) =>
@@ -958,7 +960,7 @@ class Beautifier
 
     if @is_special_word(@last_text)
       # return had a special handling in TK_WORD
-      @append(' ')
+      @append_space()
       @append(token_text)
       return
 
@@ -1021,12 +1023,12 @@ class Beautifier
       @flags.ternary_depth += 1
 
     if space_before
-      @append(' ')
+      @append_space()
 
     @append(token_text)
 
     if space_after
-      @append(' ')
+      @append_space()
 
 
   handle_block_comment: (token_text) =>
@@ -1049,7 +1051,7 @@ class Beautifier
         @append_newline()
       else
         # single line /* ... */ comment stays on the same line
-        @append(' ')
+        @append_space()
       for line in lines
         @append(line)
         @append('\n')
@@ -1057,10 +1059,10 @@ class Beautifier
 
 
   handle_inline_comment: (token_text) =>
-    @append(' ')
+    @append_space()
     @append(token_text)
     if @is_expression(@flags.mode)
-      @append(' ')
+      @append_space()
     else
       @append_newline_forced()
 
@@ -1073,7 +1075,7 @@ class Beautifier
       if @wanted_newline
         @append_newline()
       else
-        @append(' ')
+        @append_space()
 
     @append(token_text)
     @append_newline()
@@ -1081,7 +1083,7 @@ class Beautifier
 
   handle_unknown: (token_text) =>
     if @last_text in ['return', 'throw']
-      @append(' ')
+      @append_space()
 
     @append(token_text)
 

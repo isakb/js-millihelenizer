@@ -6,9 +6,10 @@ beauty = require '../beauty'
 $options = {}
 $count = 0
 
+
 setup = (options = {}) ->
-  before ->
-    $options = _.extend({}, beauty.default_options(), options)
+  beforeEach ->
+    _.extend($options, options)
 
 
 bt = (input, expectation = input) ->
@@ -34,6 +35,10 @@ beautifies_to = (input, expectation = input) ->
 
 
 describe "millihelenizer", ->
+  $options = {}
+
+  beforeEach ->
+    $options = beauty.default_options()
 
   describe "unescape_strings false", ->
     setup
@@ -49,7 +54,6 @@ describe "millihelenizer", ->
     bt '"\\x41\\x42\\x43\\x01"', '"\\x41\\x42\\x43\\x01"'
     bt '"\\u2022"', '"\\u2022"'
     bt 'a = /\s+/'
-    bt 'a = /\\x41/','a = /A/'
     bt '"\\u2022";a = /\s+/;"\\x41\\x42\\x43\\x01".match(/\\x41/);',
        '"\\u2022";\na = /\s+/;\n"\\x41\\x42\\x43\\x01".match(/\\x41/);'
     bt '"\\x22\\x27",\'\\x22\\x27\',"\\x5c",\'\\x5c\',"\\xff and \\xzz","unicode \\u0000 \\u0022 \\u0027 \\u005c \\uffff \\uzzzz"',
@@ -382,6 +386,9 @@ describe "millihelenizer", ->
 
 
   describe "more stuff again", ->
+    setup
+      destroy_newlines: false
+
     bt 'var\na=do_preserve_newlines;', 'var\na = do_preserve_newlines;'
     bt '// a\n// b\n\n// c\n// d'
     bt 'if (foo) //  comment\n{\n    bar();\n}'
